@@ -422,3 +422,108 @@ def test_minimal_overrides_configured_provider_default_runtime(monkeypatch) -> N
 
 
 def test_json_dry_run_reports_missing_requested_runtime_before_fallback() -> None:
+    with runner.isolated_filesystem():
+        Path("thinktank.toml").write_text(
+            """
+[runtimes.missingcli]
+binary = "definitely-not-installed-thinktank-runtime"
+args = ["{prompt_text}"]
+""".strip(),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--runtime", "missingcli", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "missingcli"
+        assert any(finding["rule"] == "S3" for finding in payload["sanity"])
+
+
+def test_configured_provider_keeps_missing_cli_s3_warning(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with runner.isolated_filesystem():
+        _write_openai_provider_config(
+            """
+[runtimes.missingcli]
+binary = "definitely-not-installed-thinktank-runtime"
+args = ["{prompt_text}"]
+""".strip()
+        )
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--runtime", "missingcli", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "missingcli"
+        s3_findings = [finding for finding in payload["sanity"] if finding["rule"] == "S3"]
+        assert s3_findings
+        assert "definitely-not-installed-thinktank-runtime" in s3_findings[0]["message"]
+
+
+def test_json_dry_run_rejects_unknown_workflow() -> None:
+    result = runner.invoke(app, ["--json", "--dry-run", "--workflow", "does-not-exist", "Should we ship?"])
+
+    assert result.exit_code != 0
+    assert "unknown workflow" in result.output
+
+
+def test_json_dry_run_rejects_unknown_mode() -> None:
+    result = runner.invoke(app, ["--json", "--dry-run", "--mode", "handwave", "Should we ship?"])
+
+    assert result.exit_code != 0
+    assert "unknown mode" in result.output
+
+
+def test_json_dry_run_accepts_existing_workflow_template_path() -> None:
+    with runner.isolated_filesystem():
+        Path("workflow.yaml").write_text("nodes: {}\nedges: []\n", encoding="utf-8")
+
+        result = runner.invoke(app, ["--json", "--dry-run", "--workflow", "workflow.yaml", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["workflow"] == "workflow.yaml"
+
+
+def test_thinkers_commands_show_public_lenses() -> None:
+    listed = runner.invoke(app, ["thinkers", "list"])
+    panel = runner.invoke(app, ["thinkers", "panel", "einstein,kahneman"])
+    presets = runner.invoke(app, ["thinkers", "presets"])
+    preset_panel = runner.invoke(app, ["thinkers", "panel", "risk"])
+
+    assert listed.exit_code == 0
+    assert "einstein" in listed.output
+    assert panel.exit_code == 0
+    assert "clear conclusions" in panel.output
+    assert "chain of thought" not in panel.output.lower()
+    assert presets.exit_code == 0
+    assert "iq-ultra" in presets.output
+    assert preset_panel.exit_code == 0
+    assert "Preset: risk" in preset_panel.output
+
+
+def _write_openai_provider_config(extra: str = "", path: Path = Path("thinktank.toml")) -> None:
+    path.write_text(
+        f"""
+model_provider = "OpenAI"
+model = "gpt-main"
+review_model = "gpt-judge"
+
+[model_providers.OpenAI]
+name = "OpenAI"
+base_url = "https://example.test/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[routes]
+reasoner = ["OpenAI/gpt-main", "stub/reasoner"]
+fast = ["OpenAI/gpt-fast", "stub/fast"]
+long-context = ["OpenAI/gpt-long", "stub/long-context"]
+cheap-judge = ["OpenAI/gpt-judge", "stub/cheap-judge"]
+
+{extra}
+""".strip(),
+        encoding="utf-8",
+    )
