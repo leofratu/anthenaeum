@@ -112,3 +112,117 @@ ADVANCED_HELP_TEXT = """Advanced commands:
 /settings storage ...     advanced storage alias
 """.strip()
 
+
+def handle_interactive_line(line: str, state: InteractiveState) -> InteractiveResult:
+    value = line.strip()
+    if not value:
+        return InteractiveResult("noop")
+    if not value.startswith("/"):
+        return InteractiveResult("run", question=value)
+    command, _, rest = value[1:].partition(" ")
+    command = command.lower()
+    rest = rest.strip()
+    if command in {"exit", "quit", "q"}:
+        return InteractiveResult("exit", "leaving interactive mode")
+    if command in {"help", "?"}:
+        return InteractiveResult("help", ADVANCED_HELP_TEXT if rest.lower() == "advanced" else HELP_TEXT)
+    if command == "status":
+        return InteractiveResult("status", format_status(state))
+    if command in {"setup", "configure", "config"}:
+        if command == "config" and rest:
+            subcommand, _, target = rest.partition(" ")
+            if subcommand.lower() in {"save", "write"}:
+                return InteractiveResult("save_config", target=target.strip() or "thinktank.toml")
+        return InteractiveResult("settings", format_setup(state))
+    if command in {"save-config", "saveconfig", "write-config"}:
+        return InteractiveResult("save_config", target=rest or "thinktank.toml")
+    if command == "settings":
+        return _handle_settings(rest, state)
+    if command == "network":
+        return _handle_settings(f"network {rest}", state)
+    if command == "storage":
+        return _handle_settings(f"storage {rest}", state)
+    if command == "doctor":
+        return InteractiveResult("doctor")
+    if command == "resume":
+        return InteractiveResult("resume", target=rest or None)
+    if command == "run":
+        return InteractiveResult("run", question=rest) if rest else InteractiveResult("noop", "usage: /run <question>")
+    if command == "plan":
+        return InteractiveResult("plan", question=rest) if rest else InteractiveResult("noop", "usage: /plan <question>")
+    if command in {"dry-run", "dryrun"}:
+        return InteractiveResult("dry_run", question=rest) if rest else InteractiveResult("noop", "usage: /dry-run <question>")
+    if command == "provider":
+        return _handle_provider(rest, state)
+    if command == "model":
+        return _handle_model(rest, state)
+    if command in {"review-model", "review_model"}:
+        return _handle_model(f"review {rest}", state)
+    if command in {"base-url", "base_url"}:
+        return _handle_base_url(rest, state)
+    if command in {"effort", "iq"}:
+        if not rest:
+            return InteractiveResult("select_effort")
+        if rest.lower() in {"select", "slider", "interactive"}:
+            return InteractiveResult("select_effort")
+        try:
+            state.effort = get_effort(rest).name
+        except ValueError as exc:
+            return InteractiveResult("noop", str(exc))
+        if command == "iq":
+            return InteractiveResult("status", f"iq={rest} maps to effort={state.effort}")
+        return InteractiveResult("status", f"effort={state.effort}")
+    if command in {"reasoning", "reasoning-effort"}:
+        if not rest:
+            return InteractiveResult("status", f"reasoning_effort={state.reasoning_effort}")
+        try:
+            state.reasoning_effort = get_reasoning_profile(rest).name
+        except ValueError as exc:
+            return InteractiveResult("noop", str(exc))
+        return InteractiveResult("status", f"reasoning_effort={state.reasoning_effort}")
+    if command == "runtime":
+        if not rest:
+            return InteractiveResult("status", f"runtime={state.runtime}")
+        state.runtime = rest
+        return InteractiveResult("status", f"runtime={state.runtime}")
+    if command == "budget":
+        if not rest:
+            return InteractiveResult("status", f"budget={state.budget if state.budget is not None else 'default'}")
+        try:
+            state.budget = float(rest)
+        except ValueError:
+            return InteractiveResult("noop", "usage: /budget <usd>")
+        return InteractiveResult("status", f"budget={state.budget}")
+    if command == "audience":
+        state.audience = rest or None
+        return InteractiveResult("status", f"audience={state.audience or 'default'}")
+    if command == "mode":
+        if not rest:
+            return InteractiveResult("status", f"mode={state.mode}")
+        try:
+            state.mode = validate_mode(rest)
+        except ValueError as exc:
+            return InteractiveResult("noop", str(exc))
+        return InteractiveResult("status", f"mode={state.mode}")
+    if command == "goal":
+        return _handle_goal(rest, state)
+    return InteractiveResult("noop", f"unknown command /{command}; use /help")
+
+
+def format_status(state: InteractiveState) -> str:
+    return format_settings(state)
+
+
+def format_settings(state: InteractiveState) -> str:
+    provider = state.provider or "default"
+    model = state.model or "default"
+    review_model = state.review_model or "default"
+    budget = state.budget if state.budget is not None else "default"
+    audience = state.audience or "default"
+    return (
+        f"provider={provider} · model={model} · review_model={review_model} · "
+        f"base_url={state.base_url} · iq=effort:{state.effort} · runtime={state.runtime} · "
+        f"network={state.network_access} · storage={state.storage_preference} · "
+        f"budget={budget} · audience={audience} · mode={state.mode} · goal={_format_goal_value(state)}"
+    )
+
