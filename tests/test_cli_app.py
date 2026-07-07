@@ -316,3 +316,109 @@ def test_json_dry_run_accepts_iq_ultra_panel_preset() -> None:
         assert payload["plan"]["question"] == "Should we ship?"
 
 
+def test_default_json_dry_run_without_provider_key_stays_minimal(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "minimal"
+        assert all(node["runtime"] == "minimal" for node in payload["plan"]["nodes"])
+
+
+def test_default_json_dry_run_with_configured_provider_selects_api(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with runner.isolated_filesystem():
+        _write_openai_provider_config()
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "api"
+        assert all(node["runtime"] == "api" for node in payload["plan"]["nodes"])
+
+
+def test_explicit_api_runtime_uses_supplied_config_path(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with runner.isolated_filesystem():
+        Path("configs").mkdir()
+        _write_openai_provider_config(path=Path("configs/live.toml"))
+
+        result = runner.invoke(app, ["--config", "configs/live.toml", "--runtime", "api", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "api"
+        assert not any(finding["rule"] == "S2" for finding in payload["sanity"])
+
+
+def test_default_json_dry_run_with_zero_config_env_provider_selects_api(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "api"
+        assert payload["plan"]["nodes"][0]["capability"] == "reasoner"
+        assert not any(finding["rule"] == "S2" for finding in payload["sanity"])
+
+
+def test_default_json_dry_run_with_missing_configured_provider_key_stays_minimal(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    with runner.isolated_filesystem():
+        _write_openai_provider_config()
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "minimal"
+        assert all(node["runtime"] == "minimal" for node in payload["plan"]["nodes"])
+        assert not any(finding["rule"] == "S2" for finding in payload["sanity"])
+
+
+def test_explicit_api_runtime_with_missing_configured_provider_key_reports_s2(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    with runner.isolated_filesystem():
+        _write_openai_provider_config()
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--runtime", "api", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 2, result.output
+        payload = json.loads(result.output)
+        assert payload["ok"] is False
+        assert any(finding["rule"] == "S2" and "OPENAI_API_KEY" in finding["message"] for finding in payload["sanity"])
+
+
+def test_minimal_overrides_configured_provider_default_runtime(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with runner.isolated_filesystem():
+        _write_openai_provider_config()
+
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--minimal", "--json", "--dry-run", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["runtime"] == "minimal"
+        assert all(node["runtime"] == "minimal" for node in payload["plan"]["nodes"])
+
+
+def test_json_dry_run_reports_missing_requested_runtime_before_fallback() -> None:
