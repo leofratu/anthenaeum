@@ -874,3 +874,112 @@ def _continue_run(run_id: str, completed_nodes: set[str]) -> None:
 def _handle_question(
     question: str,
     effort_name: str,
+    runtime_name: str,
+    budget: float | None,
+    dry_run: bool,
+    out: Path,
+    config: Path | None,
+    mode: str,
+    audience: str | None,
+    panel: str | None,
+    seed: int | None,
+    workflow: str,
+    reasoning_effort: str,
+    interactive_effort: bool,
+    no_anim: bool,
+    json_output: bool,
+) -> str | None:
+    defaults = _config_defaults(config)
+    if reasoning_effort == "auto":
+        reasoning_effort = defaults.get("reasoning_effort", "auto")
+    try:
+        effort = get_effort(effort_name)
+        registry = RuntimeRegistry.from_config(config)
+        gateway = ModelGateway.from_config(config)
+        requested_runtime = _select_requested_runtime(runtime_name, registry, gateway)
+        requested_health = requested_runtime.health()
+    except (KeyError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    try:
+        reasoning_profile = get_reasoning_profile(reasoning_effort)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    thinker_panel = _thinker_panel_prompt(panel)
+    if interactive_effort and not json_output:
+        effort = get_effort(select_effort_slider(effort.name))
+    ceiling = budget if budget is not None else effort.default_budget
+    planner_model = {
+        "model": defaults.get("model") or "main",
+        "provider": defaults.get("provider"),
+        "runtime": requested_runtime.name,
+    }
+    planner_decision = plan_run(question, effort, planner_model, model_reasoning_effort=reasoning_profile.name)
+    if budget is None:
+        ceiling = planner_decision.suggested_budget
+    planner_data = planner_decision.to_dict()
+    if defaults.get("route_model") and defaults.get("route_model") == defaults.get("route_review_model"):
+        planner_data["allow_self_judge"] = True
+        planner_data["self_judge_reason"] = "review_model matches model in primary config"
+    try:
+        plan = compile_plan(question, effort, requested_runtime.name, ceiling, mode, audience, seed, workflow, reasoning_profile.name, planner_data)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    plan = apply_gateway_estimates(plan, gateway)
+    sanity = SanityChecker(gateway).check(plan, requested_health)
+    if not sanity.ok:
+        if json_output:
+            _emit_json({"ok": False, "sanity": [finding.__dict__ for finding in sanity.findings]})
+            raise typer.Exit(2)
+        for finding in sanity.errors:
+            console.print(f"{finding.rule} {finding.message}", style="red")
+        raise typer.Exit(2)
+    if dry_run:
+        if json_output:
+            _emit_json({"plan": plan.to_dict(), "sanity": [finding.__dict__ for finding in sanity.findings]})
+            return None
+        render_dry_run(plan)
+        return None
+    runtime = _runtime_with_fallback(registry, requested_runtime, requested_health, gateway)
+    if runtime.name != requested_runtime.name:
+        try:
+            plan = compile_plan(question, effort, runtime.name, ceiling, mode, audience, seed, workflow, reasoning_profile.name, planner_data)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        plan = apply_gateway_estimates(plan, gateway)
+    run_id = _run_id(question, seed)
+    artifacts = RunArtifacts(run_id)
+    artifacts.prepare()
+    if runtime.name == "api":
+        runtime = ApiRuntime(ModelGateway.from_config(config, ledger=BudgetLedger.open(artifacts.root / "ledger.json", ceiling)))
+    artifacts.append_journal(
+        "run_start",
+        {
+            "question": question,
+            "runtime": runtime.name,
+            "effort": effort.name,
+            "reasoning_effort": reasoning_profile.name,
+            "planner": planner_decision.to_dict(),
+        },
+    )
+    for warning in sanity.warnings:
+        artifacts.append_journal("sanity_warning", {"rule": warning.rule, "message": warning.message})
+    artifacts.write_plan(plan.to_dict())
+    if not json_output:
+        render_launch_header(question, effort, ceiling, runtime.name, run_id=run_id, sanity=sanity.summary(), reasoning_effort=reasoning_profile.name)
+    task = AgentTask(
+        prompt=_question_prompt(question, effort.name),
+        input_payload={
+            "question": question,
+            "effort": effort.name,
+            "mode": mode,
+            "audience": audience,
+            "panel": panel,
+            "thinker_panel": thinker_panel,
+            "planner": planner_decision.to_dict(),
+            "network_access": defaults.get("network_access", "auto"),
+            "storage_preference": defaults.get("storage_preference", "default"),
+            "seed": seed or 0,
+            "workflow": workflow,
+            "run_id": run_id,
+            "artifact_root": str(artifacts.artifacts),
+        },
