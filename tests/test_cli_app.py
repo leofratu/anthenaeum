@@ -210,3 +210,109 @@ def test_setup_force_overwrites_existing_file() -> None:
                 "--model-reasoning",
                 "high",
                 "--base-url",
+                "https://openapi.junliai.org",
+                "--network",
+                "enabled",
+                "--disable-storage",
+                "--goals",
+                "--out",
+                "thinktank.toml",
+                "--force",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "old = true" not in Path("thinktank.toml").read_text(encoding="utf-8")
+        assert load_config(Path("thinktank.toml"))["model_reasoning_effort"] == "high"
+
+
+def test_setup_same_model_review_config_can_dry_run(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    with runner.isolated_filesystem():
+        setup_result = runner.invoke(
+            app,
+            [
+                "setup",
+                "--provider",
+                "OpenAI",
+                "--model",
+                "gpt-5.5",
+                "--review-model",
+                "gpt-5.5",
+                "--model-reasoning",
+                "xhigh",
+                "--base-url",
+                "https://openapi.junliai.org",
+                "--network",
+                "enabled",
+                "--disable-storage",
+                "--goals",
+                "--out",
+                "thinktank.toml",
+            ],
+        )
+        assert setup_result.exit_code == 0, setup_result.output
+
+        dry_run = runner.invoke(app, ["--config", "thinktank.toml", "--json", "--dry-run", "--effort", "high", "Should we ship?"])
+
+        assert dry_run.exit_code == 0, dry_run.output
+        payload = json.loads(dry_run.output)
+        assert payload["plan"]["planner"]["allow_self_judge"] is True
+        assert not any(finding["rule"] == "S6" and finding["severity"] == "error" for finding in payload["sanity"])
+
+
+def test_json_dry_run_includes_planner_metadata() -> None:
+    with runner.isolated_filesystem():
+        Path("thinktank.toml").write_text(
+            """
+[routes]
+reasoner = ["a/reasoner"]
+fast = ["b/fast"]
+long-context = ["a/writer"]
+cheap-judge = ["b/judge"]
+
+[providers.a]
+kind = "openai-compatible"
+models = ["reasoner", "writer"]
+
+[providers.b]
+kind = "anthropic"
+models = ["fast", "judge"]
+""".strip(),
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["--config", "thinktank.toml", "--minimal", "--json", "--dry-run", "--effort", "iq-ultra", "Should we compare privacy and security risk?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["effort"] == "ultra"
+        assert payload["plan"]["planner"]["review_depth"] == "adversarial"
+        assert payload["plan"]["planner"]["expert_panel_size"] >= 12
+
+
+def test_iq_option_maps_to_effort_alias() -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["--minimal", "--json", "--dry-run", "--iq", "140", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["effort"] == "high"
+
+
+def test_json_dry_run_rejects_unknown_panel_preset() -> None:
+    result = runner.invoke(app, ["--minimal", "--json", "--dry-run", "--panel", "not-a-panel", "Should we ship?"])
+
+    assert result.exit_code != 0
+    assert "unknown thinker lens" in result.output
+
+
+def test_json_dry_run_accepts_iq_ultra_panel_preset() -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["--minimal", "--json", "--dry-run", "--panel", "iq-ultra", "Should we ship?"])
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["plan"]["question"] == "Should we ship?"
+
+
