@@ -436,3 +436,112 @@ def watch(
     for_duration: Annotated[str, typer.Option("--for")] = "14d",
 ) -> None:
     session = SessionRecord(id=new_run_id(), question=question, daily_budget=daily_budget, duration=for_duration)
+    SessionStore().create(session)
+    console.print(f"started session {session.id}: {question}")
+
+
+@app.command()
+def poke(session_id: Annotated[str, typer.Argument(help="Session id to wake.")]) -> None:
+    store = SessionStore()
+    if store.get(session_id) is None:
+        raise typer.BadParameter(f"unknown session {session_id!r}")
+    store.enqueue_wake(session_id, "manual")
+    console.print(f"poked session {session_id}")
+
+
+@app.command()
+def resume(
+    run_id: Annotated[str, typer.Argument(help="Run id to inspect/resume.")],
+    continue_run: Annotated[bool, typer.Option("--continue", help="Continue an incomplete deterministic run.")] = False,
+) -> None:
+    try:
+        state = replay_run(run_id)
+    except ResumeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if continue_run and not state.complete:
+        _continue_run(run_id, set(state.completed_nodes))
+        return
+    console.print(f"run {state.run_id}: {'complete' if state.complete else 'incomplete'}")
+    console.print(f"events: {state.events} · spent ${state.spent_usd:.2f}")
+    console.print(f"artifacts: {len(state.artifacts)}")
+    console.print(f"next: {state.next_action}")
+
+
+@sessions_app.command("list")
+def sessions_list() -> None:
+    sessions = SessionStore().list()
+    if not sessions:
+        console.print("no sessions")
+        return
+    for row in sessions:
+        console.print(f"{row.get('id')}  {row.get('status')}  ${row.get('daily_budget')}/day  {row.get('question')}")
+
+
+@sessions_app.command("show")
+def sessions_show(session_id: Annotated[str, typer.Argument()]) -> None:
+    row = SessionStore().get(session_id)
+    if row is None:
+        raise typer.BadParameter(f"unknown session {session_id!r}")
+    console.print(json.dumps(row, indent=2, sort_keys=True))
+
+
+@sessions_app.command("pause")
+def sessions_pause(session_id: Annotated[str, typer.Argument()]) -> None:
+    _set_session_status(session_id, "paused")
+
+
+@sessions_app.command("resume")
+def sessions_resume(session_id: Annotated[str, typer.Argument()]) -> None:
+    _set_session_status(session_id, "running")
+
+
+@sessions_app.command("stop")
+def sessions_stop(session_id: Annotated[str, typer.Argument()]) -> None:
+    _set_session_status(session_id, "stopped")
+
+
+@personas_app.command("list")
+def personas_list() -> None:
+    for name, summary in BUILTIN_PERSONAS.items():
+        console.print(f"{name:<10} {summary}")
+
+
+@personas_app.command("show")
+def personas_show(name: Annotated[str, typer.Argument()]) -> None:
+    key = name.lower()
+    if key not in BUILTIN_PERSONAS:
+        raise typer.BadParameter(f"unknown persona {name!r}")
+    console.print(f"[bold]{key}[/]\n{BUILTIN_PERSONAS[key]}")
+
+
+@thinkers_app.command("list")
+def thinkers_list() -> None:
+    for lens in list_lenses():
+        console.print(f"{lens.key:<10} {lens.short_style}")
+
+
+@thinkers_app.command("show")
+def thinkers_show(name: Annotated[str, typer.Argument()]) -> None:
+    try:
+        lens = get_lens(name)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(lens.prompt_block())
+
+
+@thinkers_app.command("presets")
+def thinkers_presets() -> None:
+    for preset in list_panel_presets():
+        console.print(f"{preset.key:<12} {','.join(preset.lenses):<72} {preset.use}")
+
+
+@thinkers_app.command("panel")
+def thinkers_panel(names: Annotated[str, typer.Argument(help="Comma-separated thinker lens names or a preset.")]) -> None:
+    try:
+        panel = build_panel(names)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(panel.prompt())
+
+
+@workflows_app.command("list")
