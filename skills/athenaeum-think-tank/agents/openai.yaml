@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATHENAEUM Think Tank"
+  short_description: "Configure ATHENAEUM IQ think-tank runs"
+  default_prompt: "Use $athenaeum-think-tank to configure an ATHENAEUM provider, IQ effort preset, safe thinker panel, and dry-run plan."
