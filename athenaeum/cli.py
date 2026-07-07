@@ -764,3 +764,113 @@ def _set_session_status(session_id: str, status: str) -> None:
 
 
 def _print_resume_state(run_id: str) -> None:
+    try:
+        state = replay_run(run_id)
+    except ResumeError as exc:
+        console.print(str(exc), style="red")
+        return
+    console.print(f"run {state.run_id}: {'complete' if state.complete else 'incomplete'}")
+    console.print(f"events: {state.events} · spent ${state.spent_usd:.2f} · next: {state.next_action}")
+
+
+def _config_defaults(path: Path | None) -> dict[str, str]:
+    data = load_config(path)
+    provider = data.get("model_provider")
+    model = data.get("model")
+    review_model = data.get("review_model")
+    reasoning = data.get("model_reasoning_effort")
+    network = data.get("network_access")
+    base_url = _active_provider_base_url(data, provider)
+    storage = "no-response-storage" if data.get("disable_response_storage") is True else "default"
+    defaults: dict[str, str] = {}
+    if isinstance(provider, str):
+        defaults["provider"] = provider
+    if isinstance(model, str):
+        defaults["model"] = model
+        defaults["route_model"] = model if "/" in model else f"{provider}/{model}" if isinstance(provider, str) else model
+    if isinstance(review_model, str):
+        defaults["review_model"] = review_model
+        defaults["route_review_model"] = review_model if "/" in review_model else f"{provider}/{review_model}" if isinstance(provider, str) else review_model
+    if isinstance(reasoning, str):
+        defaults["reasoning_effort"] = reasoning
+    if isinstance(network, str):
+        defaults["network_access"] = network
+    elif isinstance(network, bool):
+        defaults["network_access"] = "enabled" if network else "disabled"
+    if isinstance(base_url, str):
+        defaults["base_url"] = base_url
+    defaults["storage_preference"] = storage
+    return defaults
+
+
+def _active_provider_base_url(data: dict[str, object], provider: object) -> str | None:
+    if not isinstance(provider, str):
+        return None
+    providers = data.get("model_providers")
+    if not isinstance(providers, dict):
+        return None
+    raw = providers.get(provider)
+    if not isinstance(raw, dict):
+        provider_lower = provider.lower()
+        for key, candidate in providers.items():
+            if str(key).lower() == provider_lower:
+                raw = candidate
+                break
+            if isinstance(candidate, dict) and isinstance(candidate.get("name"), str) and candidate["name"].lower() == provider_lower:
+                raw = candidate
+                break
+    if isinstance(raw, dict) and isinstance(raw.get("base_url"), str):
+        return raw["base_url"]
+    return None
+
+
+def _thinker_panel_prompt(panel: str | None) -> str | None:
+    if not panel:
+        return None
+    try:
+        return build_panel(panel).prompt()
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _runtime_with_fallback(registry: RuntimeRegistry, requested_runtime, requested_health, gateway: ModelGateway):
+    if requested_health.available or requested_runtime.name == "minimal":
+        return requested_runtime
+    runtime = ApiRuntime(gateway)
+    if runtime.health().available:
+        return runtime
+    return registry.get("minimal")
+
+
+def _continue_run(run_id: str, completed_nodes: set[str]) -> None:
+    artifacts = RunArtifacts(run_id)
+    plan_path = artifacts.artifacts / "plan.json"
+    if not plan_path.exists():
+        raise typer.BadParameter(f"run {run_id!r} has no plan artifact")
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
+    effort = get_effort(data.get("effort", "high"))
+    plan = compile_plan(
+        data.get("question", ""),
+        effort,
+        data.get("runtime", "minimal"),
+        float(data.get("budget", effort.default_budget)),
+        data.get("mode", "auto"),
+        data.get("audience"),
+        data.get("seed"),
+        data.get("workflow", "auto"),
+        data.get("reasoning_effort", "auto"),
+        data.get("planner") if isinstance(data.get("planner"), dict) else None,
+    )
+    context = RunContext(plan.question, run_id, effort.name, plan.mode, plan.audience, plan.seed or 0, artifacts.artifacts)
+    artifacts.append_journal("run_resume", {"completed_nodes": sorted(completed_nodes)})
+    result = LocalConductor(plan, artifacts, context).run(completed_nodes).report
+    artifacts.write_markdown("report.resumed.md", result.report_markdown)
+    artifacts.write_ledger("minimal", plan.budget, 0.0)
+    artifacts.append_journal("run_complete", {"out": "runs/%s/artifacts/report.resumed.md" % run_id})
+    artifacts.write_manifest()
+    console.print(f"resumed run {run_id}: complete")
+
+
+def _handle_question(
+    question: str,
+    effort_name: str,
