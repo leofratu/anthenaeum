@@ -134,3 +134,139 @@ def test_sanity_rejects_same_model_for_generator_and_judge() -> None:
     assert not report.ok
     assert any(finding.rule == "S6" for finding in report.errors)
 
+
+def test_sanity_allows_explicit_self_judge_override() -> None:
+    gateway = ModelGateway(
+        routes={
+            "reasoner": ["stub/reasoner"],
+            "fast": ["stub/fast"],
+            "long-context": ["stub/gpt-same"],
+            "cheap-judge": ["stub/gpt-same"],
+        },
+        providers={"stub": ProviderConfig(name="stub", kind="stub", models=["reasoner", "fast", "gpt-same"])},
+    )
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 1.0, planner={"allow_self_judge": True})
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert report.ok
+    assert not any(finding.rule == "S6" for finding in report.errors)
+
+
+def test_sanity_default_workflow_has_schema_assignable_edges() -> None:
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 1.0)
+
+    report = SanityChecker().check(plan)
+
+    assert not any(finding.rule == "S4" for finding in report.errors)
+
+
+def test_sanity_budget_uses_provider_prices_not_budget_slices() -> None:
+    gateway = _priced_gateway(input_price=4.0, output_price=8.0)
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 1.0)
+
+    assert plan.estimated_cost < plan.budget
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S5" and "exceeds budget" in finding.message for finding in report.errors)
+
+
+def test_apply_gateway_estimates_updates_visible_plan_costs() -> None:
+    gateway = _priced_gateway(input_price=1.0, output_price=2.0)
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 0.01)
+
+    priced = apply_gateway_estimates(plan, gateway)
+
+    assert priced.estimated_cost > plan.estimated_cost
+    assert all(node.estimated_cost > 0 for node in priced.nodes)
+
+
+def test_compile_plan_estimated_cost_is_independent_of_user_budget() -> None:
+    planner = {"suggested_budget": 7.5}
+
+    tiny_budget = compile_plan("Should we ship?", get_effort("low"), "minimal", 0.01, planner=planner)
+    large_budget = compile_plan("Should we ship?", get_effort("low"), "minimal", 100.0, planner=planner)
+
+    assert tiny_budget.estimated_cost == 7.5
+    assert large_budget.estimated_cost == tiny_budget.estimated_cost
+
+
+def test_sanity_budget_rejects_below_planner_suggested_budget() -> None:
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 0.01, planner={"suggested_budget": 1.25})
+
+    report = SanityChecker().check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S5" and "exceeds budget" in finding.message for finding in report.errors)
+
+
+def test_sanity_budget_allows_equal_planner_suggested_budget() -> None:
+    plan = compile_plan("Should we ship?", get_effort("low"), "minimal", 1.25, planner={"suggested_budget": 1.25})
+
+    report = SanityChecker().check(plan)
+
+    assert report.ok
+    assert not any(finding.rule == "S5" for finding in report.errors)
+
+
+def test_sanity_budget_rejects_zero_and_negative_budget() -> None:
+    for budget in (0.0, -1.0):
+        plan = compile_plan("Should we ship?", get_effort("low"), "minimal", budget)
+
+        report = SanityChecker().check(plan)
+
+        assert not report.ok
+        assert any(finding.rule == "S5" and "budget must be positive" in finding.message for finding in report.errors)
+
+
+def test_sanity_rejects_schema_incompatible_edge() -> None:
+    source = PlanNode(
+        name="source",
+        kind="writer",
+        runtime="minimal",
+        capability="reasoner",
+        output_schema="ReportOutput",
+        budget_share=0.5,
+        estimated_tokens=100,
+        estimated_cost=0.01,
+        detail="source",
+    )
+    target = PlanNode(
+        name="target",
+        kind="writer",
+        runtime="minimal",
+        capability="reasoner",
+        output_schema="ReviewOutput",
+        budget_share=0.5,
+        estimated_tokens=100,
+        estimated_cost=0.01,
+        detail="target",
+        input_schemas=("ResearchOutput",),
+    )
+    plan = ExecutionPlan(
+        question="Should we ship?",
+        effort=get_effort("low"),
+        runtime="minimal",
+        budget=1.0,
+        nodes=(source, target),
+        edges=(("source", "target"), ("target", "emit")),
+    )
+
+    report = SanityChecker().check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S4" and "ReportOutput" in finding.message for finding in report.errors)
+
+
+def test_sanity_rejects_missing_required_predecessor_input() -> None:
+    target = PlanNode(
+        name="target",
+        kind="writer",
+        runtime="minimal",
+        capability="reasoner",
+        output_schema="ReportOutput",
+        budget_share=1.0,
+        estimated_tokens=100,
+        estimated_cost=0.01,
