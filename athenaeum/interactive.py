@@ -226,3 +226,117 @@ def format_settings(state: InteractiveState) -> str:
         f"budget={budget} · audience={audience} · mode={state.mode} · goal={_format_goal_value(state)}"
     )
 
+
+def format_setup(state: InteractiveState) -> str:
+    provider = state.provider or "OpenAI"
+    model = state.model or "gpt-5.5"
+    review_model = state.review_model or model
+    return "\n".join(
+        [
+            "Setup path:",
+            f"provider={provider}",
+            f"model={model}",
+            f"review_model={review_model}",
+            f"base_url={state.base_url}",
+            f"runtime={state.runtime}",
+            f"iq=effort:{state.effort}",
+            f"network={state.network_access}",
+            f"storage={state.storage_preference}",
+            "Next: /iq select, /runtime auto, /save-config thinktank.toml, then /plan <question>.",
+        ]
+    )
+
+
+def _handle_provider(rest: str, state: InteractiveState) -> InteractiveResult:
+    if not rest:
+        return InteractiveResult("status", f"provider={state.provider or 'default'}")
+    state.provider = _optional_value(rest)
+    return InteractiveResult("status", f"provider={state.provider or 'default'}")
+
+
+def _handle_model(rest: str, state: InteractiveState) -> InteractiveResult:
+    if not rest:
+        return InteractiveResult("status", f"model={state.model or 'default'} · review_model={state.review_model or 'default'}")
+    slot, _, value = rest.partition(" ")
+    if slot.lower() in {"review", "reviewer", "review-model", "review_model"}:
+        if not value.strip():
+            return InteractiveResult("status", f"review_model={state.review_model or 'default'}")
+        state.review_model = _optional_value(value.strip())
+        return InteractiveResult("status", f"review_model={state.review_model or 'default'}")
+    model = _optional_value(rest)
+    if model and "/" in model:
+        provider, _, provider_model = model.partition("/")
+        if provider and provider_model:
+            state.provider = provider
+            model = provider_model
+    state.model = model
+    return InteractiveResult("status", f"provider={state.provider or 'default'} · model={state.model or 'default'}")
+
+
+def _handle_base_url(rest: str, state: InteractiveState) -> InteractiveResult:
+    if not rest:
+        return InteractiveResult("status", f"base_url={state.base_url}")
+    state.base_url = rest
+    return InteractiveResult("status", f"base_url={state.base_url}")
+
+
+def _handle_goal(rest: str, state: InteractiveState) -> InteractiveResult:
+    if not rest or rest.lower() in {"show", "status"}:
+        return InteractiveResult("status", f"goal={_format_goal_value(state)}")
+    command = rest.lower()
+    if command in {"complete", "completed", "done", "finish", "finished"}:
+        if not state.goal:
+            return InteractiveResult("noop", "no active goal")
+        state.current_goal = None
+        state.goal_status = "complete"
+        return InteractiveResult("status", f"goal={_format_goal_value(state)}")
+    if command in {"clear", "reset", "none"}:
+        state.goal = None
+        state.current_goal = None
+        state.goal_status = "none"
+        return InteractiveResult("status", "goal=none")
+    state.goal = rest
+    state.current_goal = rest
+    state.goal_status = "active"
+    return InteractiveResult("status", f"goal={_format_goal_value(state)}")
+
+
+def _handle_settings(rest: str, state: InteractiveState) -> InteractiveResult:
+    if not rest:
+        return InteractiveResult("settings", format_settings(state))
+    key, value = _split_key_value(rest)
+    if key in {"network", "network-access", "network_access"}:
+        if not value:
+            return InteractiveResult("settings", f"network={state.network_access}")
+        normalized = NETWORK_ALIASES.get(value.lower())
+        if normalized is None:
+            return InteractiveResult("noop", "usage: /settings network on|off|auto")
+        state.network_access = normalized
+        return InteractiveResult("settings", f"network={state.network_access}")
+    if key in {"storage", "storage-preference", "storage_preference"}:
+        if not value:
+            return InteractiveResult("settings", f"storage={state.storage_preference}")
+        state.storage_preference = value
+        return InteractiveResult("settings", f"storage={state.storage_preference}")
+    return InteractiveResult("noop", "usage: /settings [network on|off|auto|storage <preference>]")
+
+
+def _split_key_value(rest: str) -> tuple[str, str]:
+    key, separator, value = rest.partition("=")
+    if separator:
+        return key.strip().lower(), value.strip()
+    key, _, value = rest.partition(" ")
+    return key.strip().lower(), value.strip()
+
+
+def _optional_value(value: str) -> str | None:
+    normalized = value.strip()
+    return None if normalized.lower() in {"", "default", "auto", "none", "clear", "reset"} else normalized
+
+
+def _format_goal_value(state: InteractiveState) -> str:
+    if state.goal_status == "active" and state.current_goal:
+        return f"active:{state.current_goal}"
+    if state.goal_status == "complete" and state.goal:
+        return f"complete:{state.goal}"
+    return "none"
