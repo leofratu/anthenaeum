@@ -327,3 +327,112 @@ def interactive(
                 state.budget,
                 True,
                 Path("report.md"),
+                config,
+                state.mode,
+                state.audience,
+                None,
+                None,
+                "auto",
+                state.reasoning_effort,
+                False,
+                True,
+                False,
+            )
+            continue
+        if result.action in {"run", "dry_run"} and result.question:
+            answer = _handle_question(
+                result.question,
+                state.effort,
+                state.runtime,
+                state.budget,
+                result.action == "dry_run",
+                Path("report.md"),
+                config,
+                state.mode,
+                state.audience,
+                None,
+                None,
+                "auto",
+                state.reasoning_effort,
+                False,
+                True,
+                False,
+            )
+            if result.action == "run" and answer:
+                console.rule("Answer", style="grey42")
+                console.print(answer)
+
+
+@app.command()
+def evolve(
+    prompt: Annotated[str, typer.Argument(help="Idea or thesis prompt.")],
+    generations: Annotated[int, typer.Option("--generations")] = 6,
+    axes: Annotated[str, typer.Option("--axes")] = "novelty,risk,horizon",
+    out: Annotated[Path, typer.Option("--out")] = Path("evolve.md"),
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    seed: Annotated[int, typer.Option("--seed")] = 0,
+) -> None:
+    axis_list = [axis.strip() for axis in axes.split(",") if axis.strip()]
+    if not axis_list:
+        axis_list = ["novelty", "risk", "horizon"]
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="athenaeum-dryrun-") as temp:
+            output = DeterministicLoopEngine(RunContext(prompt, "dryrun", "high", "evolve", None, seed, Path(temp))).run_evolve(prompt, generations, axis_list)
+        console.print(output.report_markdown)
+        return
+    artifacts = _mode_artifacts(prompt, "evolve", seed)
+    engine = DeterministicLoopEngine(RunContext(prompt, artifacts.run_id, "high", "evolve", None, seed, artifacts.artifacts))
+    artifacts.append_journal("run_start", {"mode": "evolve", "prompt": prompt})
+    output = engine.run_evolve(prompt, generations, axis_list)
+    artifacts.append_journal("run_complete", {"out": str(out), "archive": len(output.archive)})
+    artifacts.write_manifest()
+    _write_output(out, output.report_markdown, output.model_dump(mode="json"))
+
+
+@app.command()
+def review(
+    file: Annotated[Path, typer.Argument(help="Markdown draft to review.")],
+    court: Annotated[str, typer.Option("--court")] = "full",
+    audience: Annotated[str | None, typer.Option("--audience")] = None,
+    out: Annotated[Path, typer.Option("--out")] = Path("review.md"),
+) -> None:
+    draft = file.read_text(encoding="utf-8")
+    artifacts = _mode_artifacts(str(file), "review", 0)
+    engine = DeterministicLoopEngine(RunContext(str(file), artifacts.run_id, "high", "review", audience, 0, artifacts.artifacts))
+    artifacts.append_journal("run_start", {"mode": "review", "file": str(file)})
+    output = engine.run_review(str(file), draft, court, audience)
+    artifacts.append_journal("run_complete", {"out": str(out), "verdicts": len(output.court.verdicts)})
+    artifacts.write_manifest()
+    _write_output(out, output.report_markdown, output.model_dump(mode="json"))
+
+
+@app.command()
+def science(
+    hypothesis: Annotated[str, typer.Argument(help="Hypothesis to test.")],
+    sandbox: Annotated[Path, typer.Option("--sandbox")] = Path("lab"),
+    max_experiments: Annotated[int, typer.Option("--max-experiments")] = 5,
+    out: Annotated[Path, typer.Option("--out")] = Path("science.md"),
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+) -> None:
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="athenaeum-dryrun-") as temp:
+            output = DeterministicLoopEngine(RunContext(hypothesis, "dryrun", "high", "science", None, 0, Path(temp))).run_science(hypothesis, str(sandbox), max_experiments).writeup
+        console.print(output.report_markdown)
+        return
+    sandbox.mkdir(parents=True, exist_ok=True)
+    artifacts = _mode_artifacts(hypothesis, "science", 0)
+    engine = DeterministicLoopEngine(RunContext(hypothesis, artifacts.run_id, "high", "science", None, 0, artifacts.artifacts))
+    artifacts.append_journal("run_start", {"mode": "science", "hypothesis": hypothesis, "sandbox": str(sandbox)})
+    run_output = engine.run_science(hypothesis, str(sandbox), max_experiments)
+    artifacts.append_journal("run_complete", {"out": str(out), "experiments": len(run_output.results)})
+    artifacts.write_manifest()
+    _write_output(out, run_output.writeup.report_markdown, run_output.writeup.model_dump(mode="json"))
+
+
+@app.command()
+def watch(
+    question: Annotated[str, typer.Argument(help="Question for a long-running session.")],
+    daily_budget: Annotated[float, typer.Option("--daily-budget")] = 3.0,
+    for_duration: Annotated[str, typer.Option("--for")] = "14d",
+) -> None:
+    session = SessionRecord(id=new_run_id(), question=question, daily_budget=daily_budget, duration=for_duration)
