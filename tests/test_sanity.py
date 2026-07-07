@@ -406,3 +406,139 @@ cheap-judge = ["priced/judge"]
 kind = "openai-compatible"
 models = ["reasoner", "fast", "long", "judge"]
 
+[providers.priced.prices."*"]
+input = 0.01
+output = 0.02
+""".strip(),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "--config",
+                "thinktank.toml",
+                "--json",
+                "--dry-run",
+                "--effort",
+                "high",
+                "--budget",
+                "100",
+                "Should we ship?",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        nodes = payload["plan"]["nodes"]
+
+        assert all(isinstance(node["estimated_cost"], float | int) for node in nodes)
+        assert [node["estimated_cost"] for node in nodes] != [
+            round(payload["plan"]["budget"] * node["budget_share"], 4) for node in nodes
+        ]
+
+
+def _gateway_for_route(targets: list[str]) -> ModelGateway:
+    return ModelGateway(
+        routes={"reasoner": targets},
+        providers={
+            "missing": ProviderConfig(
+                name="missing",
+                kind="openai-compatible",
+                key_env=MISSING_KEY_ENV,
+                models=["reasoner"],
+            ),
+            "stub": ProviderConfig(
+                name="stub",
+                kind="stub",
+                models=["reasoner"],
+            ),
+        },
+    )
+
+
+def _priced_gateway(input_price: float, output_price: float) -> ModelGateway:
+    provider = ProviderConfig(
+        name="priced",
+        kind="openai-compatible",
+        models=["reasoner", "fast", "writer", "judge"],
+        prices={"*": {"input": input_price, "output": output_price}},
+    )
+    return ModelGateway(
+        routes={
+            "reasoner": ["priced/reasoner"],
+            "fast": ["priced/fast"],
+            "long-context": ["priced/writer"],
+            "cheap-judge": ["priced/judge"],
+        },
+        providers={"priced": provider},
+    )
+
+
+def _plan_for_capability(capability: str) -> ExecutionPlan:
+    node = PlanNode(
+        name="draft",
+        kind="writer",
+        runtime="minimal",
+        capability=capability,
+        output_schema="ReportOutput",
+        budget_share=1.0,
+        estimated_tokens=100,
+        estimated_cost=0.01,
+        detail="focused test node",
+    )
+    return ExecutionPlan(
+        question="Should we ship?",
+        effort=get_effort("low"),
+        runtime="minimal",
+        budget=1.0,
+        nodes=(node,),
+        edges=(("draft", "emit"),),
+    )
+
+
+def _single_node_budget_plan(
+    capability: str,
+    budget: float,
+    estimated_tokens: int,
+    estimated_cost: float,
+) -> ExecutionPlan:
+    node = PlanNode(
+        name="priced",
+        kind="writer",
+        runtime="minimal",
+        capability=capability,
+        output_schema="ReportOutput",
+        budget_share=1.0,
+        estimated_tokens=estimated_tokens,
+        estimated_cost=estimated_cost,
+        detail="provider priced budget test node",
+    )
+    return ExecutionPlan(
+        question="Should we ship?",
+        effort=get_effort("low"),
+        runtime="minimal",
+        budget=budget,
+        nodes=(node,),
+        edges=(("priced", "emit"),),
+    )
+
+
+def _gateway_with_prices(
+    capability: str,
+    target: str,
+    prices: dict[str, dict[str, float]],
+    kind: str = "openai-compatible",
+) -> ModelGateway:
+    provider_name, model_name = target.split("/", 1)
+    return ModelGateway(
+        routes={capability: [target]},
+        providers={
+            provider_name: ProviderConfig(
+                name=provider_name,
+                kind=kind,
+                models=[model_name],
+                prices=prices,
+            ),
+        },
+    )
