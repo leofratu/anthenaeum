@@ -124,3 +124,129 @@ def test_resume_invalidates_suffix_after_config_digest_mismatch(tmp_path: Path) 
     assert state.completed_nodes == ("research",)
 
 
+def test_resume_invalidates_when_plan_json_changes_after_node_final(tmp_path: Path) -> None:
+    artifacts = RunArtifacts("run123", tmp_path / "runs")
+    original_plan = {"question": "q", "budget": 1.0}
+    artifacts.write_plan(original_plan)
+    original_digest = _digest(original_plan)
+    for node in ("research", "debate", "draft"):
+        _append_trusted_node_final(artifacts, node, config_digest=original_digest)
+    artifacts.write_plan({"question": "q", "budget": 2.0})
+
+    state = replay_run("run123", tmp_path / "runs")
+
+    assert state.completed_nodes == ()
+
+
+def test_conductor_does_not_skip_downstream_after_recomputed_predecessor(tmp_path: Path) -> None:
+    artifacts = RunArtifacts("run123", tmp_path / "runs")
+    effort = get_effort("low")
+    plan = compile_plan("Should we ship?", effort, "minimal", effort.default_budget)
+    context = RunContext(plan.question, "run123", effort.name, plan.mode, plan.audience, 0, artifacts.artifacts)
+    LocalConductor(plan, artifacts, context).run()
+    (artifacts.artifacts / "debate.json").unlink()
+
+    result = LocalConductor(plan, artifacts, context).run(completed_nodes={"research", "debate", "draft", "verify", "court", "revise"})
+
+    assert result.skipped_nodes == ("research",)
+
+
+def test_resume_rejects_cached_artifact_hash_mismatch(tmp_path: Path) -> None:
+    artifacts = RunArtifacts("run123", tmp_path / "runs")
+    artifact_path = artifacts.artifacts / "research.json"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text('{"kind":"research"}', encoding="utf-8")
+    digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    artifacts.append_journal(
+        "node_final",
+        {
+            "node": "research",
+            "input_digest": "input",
+            "config_digest": "config",
+            "output_digest": "output",
+            "schema_name": "research",
+            "artifact_path": "artifacts/research.json",
+            "artifact_sha256": digest,
+        },
+    )
+    artifact_path.write_text('{"kind":"research","changed":true}', encoding="utf-8")
+
+    with pytest.raises(ResumeError, match="artifact hash mismatch"):
+        replay_run("run123", tmp_path / "runs")
+
+
+def test_session_store_create_poke_and_consume(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    store.create(SessionRecord(id="s1", question="q", daily_budget=1.0, duration="1d"))
+
+    assert store.get("s1") is not None
+    wakes = store.due_wakes()
+    assert len(wakes) == 1
+    store.consume_wake(wakes[0]["id"])
+    assert store.due_wakes() == []
+
+
+def test_session_store_due_wakes_ignore_paused_and_stopped_sessions(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    store.create(SessionRecord(id="running", question="q1", daily_budget=1.0, duration="1d"))
+    store.create(SessionRecord(id="paused", question="q2", daily_budget=1.0, duration="1d"))
+    store.create(SessionRecord(id="stopped", question="q3", daily_budget=1.0, duration="1d"))
+    store.set_status("paused", "paused")
+    store.set_status("stopped", "stopped")
+
+    wakes = store.due_wakes()
+
+    assert {wake["session_id"] for wake in wakes} == {"running"}
+
+
+def test_session_store_resume_makes_queued_wake_due_again(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    store.create(SessionRecord(id="s1", question="q", daily_budget=1.0, duration="1d"))
+    store.set_status("s1", "paused")
+
+    assert store.due_wakes() == []
+
+    store.set_status("s1", "running")
+
+    assert [wake["session_id"] for wake in store.due_wakes()] == ["s1"]
+
+
+def test_citation_db_dedupes_normalized_urls(tmp_path: Path) -> None:
+    db = CitationDB(tmp_path / "citations.sqlite3")
+    db.upsert_citation(CitationRef(id="a", title="Example", url="HTTPS://EXAMPLE.COM/path/"))
+    db.upsert_citation(CitationRef(id="b", title="Example 2", url="https://example.com/path"))
+
+    assert len(db.list_sources()) == 1
+
+
+def test_claim_ledger_versions_and_materializes_latest(tmp_path: Path) -> None:
+    ledger = ClaimLedger(tmp_path / "claims.jsonl")
+    ledger.append(ClaimRef(id="c1", text="claim", status="unverified"), "draft")
+    ledger.append(ClaimRef(id="c1", text="claim", status="verified"), "verify")
+
+    latest = ledger.materialize()
+    assert latest["c1"]["version"] == 2
+    assert latest["c1"]["claim"]["status"] == "verified"
+
+
+def _append_trusted_node_final(artifacts: RunArtifacts, node: str, config_digest: str = "config") -> None:
+    artifact_path = artifacts.artifacts / f"{node}.json"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps({"kind": node}), encoding="utf-8")
+    digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    artifacts.append_journal(
+        "node_final",
+        {
+            "node": node,
+            "input_digest": f"input-{node}",
+            "config_digest": config_digest,
+            "output_digest": f"output-{node}",
+            "schema_name": node,
+            "artifact_path": str(artifact_path.relative_to(artifacts.root)),
+            "artifact_sha256": digest,
+        },
+    )
+
+
+def _digest(data: object) -> str:
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
