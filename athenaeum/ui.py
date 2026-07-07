@@ -246,3 +246,126 @@ def _build_effort_slider(selected: str = "high", tick: int = 0, interactive: boo
         Text(f"Selected {profile.name.upper()} - {profile.tagline}", style=f"{theme.accent} bold"),
         Text(details, style=f"{theme.accent} bold" if selected in {"vhigh", "max", "ultra"} else "grey82"),
         Text(f"animation {preview}  {profile.refresh_per_second} fps preview", style=theme.accent),
+    ]
+    if selected in {"vhigh", "max", "ultra"}:
+        lines.append(Text(_high_effort_note(selected), style=theme.accent))
+    if interactive:
+        help_text = "<-/-> or h/l to adjust | 1-6 jump | Enter confirm | q/Esc cancel"
+        if theme.color:
+            help_text = "←/→ or h/l to adjust · 1-6 jump · Enter confirm · q/Esc cancel"
+        lines.append(Text(help_text, style="grey58"))
+    return Group(*lines)
+
+
+def _high_effort_note(selected: str) -> str:
+    notes = {
+        "vhigh": "provider-diverse council animation for broad review",
+        "max": "orbit sweep marks tournament-style review",
+        "ultra": "red-team pulse marks replication and adversarial review",
+    }
+    return notes.get(selected, "")
+
+
+def _effort_animation_frame(profile: EffortProfile, tick: int) -> str:
+    if _ascii_only():
+        frames = {
+            "low": (".", "..", "..."),
+            "medium": ("-", "\\", "|", "/"),
+            "high": ("_", "__", "___", "__"),
+            "vhigh": ("oooo", "oOOo", "OOOo", "oOOo"),
+            "max": ("o....", ".o...", "..O..", "...o.", "....o", "...o.", "..O..", ".o..."),
+            "ultra": ("x-x", "-x-", "XXX", "-x-"),
+        }
+        values = frames.get(profile.name, frames["high"])
+        return values[tick % len(values)]
+    frames = {
+        "low": ("·  ", "·· ", "···"),
+        "medium": ("⠋", "⠙", "⠸", "⠴", "⠦", "⠇"),
+        "high": ("▁▂▃▅▃", "▂▃▅▃▂", "▃▅▃▂▁", "▂▃▅▃▂"),
+        "vhigh": ("◐◓◑◒", "◓◑◒◐", "◑◒◐◓", "◒◐◓◑"),
+        "max": ("◉○∘∙∘○", "○◉○∘∙∘", "∘○◉○∘∙", "∙∘○◉○∘", "∘∙∘○◉○", "○∘∙∘○◉"),
+        "ultra": ("◇◆◇  ✓", "◆◇◆  ⇄", "◇◆◇  ⚑", "◆◇◆  ✓"),
+    }
+    values = frames.get(profile.name, frames["high"])
+    return values[tick % len(values)]
+
+
+def render_completion(path: str, result: AgentResult, report_text: str, run_dir: str | None = None) -> None:
+    theme = make_theme()
+    words = len(report_text.split())
+    lines = [
+        f"{theme.glyphs.ok} Report ready  {path} · {words:,} words",
+        f"claims: {len(result.claims)} · citations: {len(result.citations)}",
+        f"runtime: {result.runtime_meta.runtime} · {result.runtime_meta.duration_seconds:.1f}s · cost ${result.cost.usd:.2f}",
+    ]
+    if run_dir:
+        lines.append(f"artifacts: {run_dir}")
+    console.print(Panel("\n".join(lines), border_style="green", expand=False))
+
+
+class LiveRunRenderer:
+    def __init__(self, plan: ExecutionPlan, no_anim: bool = False):
+        self.plan = plan
+        self.theme = make_theme(plan.effort)
+        self.no_anim = no_anim
+        self.started = perf_counter()
+        self.statuses = {node.name: "queued" for node in plan.nodes}
+        self.live: Live | None = None
+
+    def __enter__(self) -> "LiveRunRenderer":
+        if console.is_terminal and not self.no_anim:
+            self.live = Live(self, console=console, refresh_per_second=self.plan.effort.refresh_per_second)
+            self.live.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self.live is not None:
+            self.live.__exit__(exc_type, exc, tb)
+
+    def handle_event(self, event: AgentEvent) -> None:
+        if event.kind == "progress" and event.raw:
+            node = event.raw.get("node")
+            state = event.raw.get("state", "done")
+            if isinstance(node, str) and node in self.statuses:
+                self.statuses[node] = str(state)
+        if self.live is not None:
+            self.live.update(self, refresh=True)
+        elif event.kind == "progress" and event.message:
+            console.print(Text(f"{self.theme.glyphs.ok} {event.message}", style="green"))
+
+    def __rich_console__(self, _console: Console, _options: Any) -> Any:
+        yield self.render()
+
+    def render(self) -> Group:
+        tree = Tree(Text("deliberation", style=f"{self.theme.accent} bold"))
+        tick = int((perf_counter() - self.started) * max(self.plan.effort.refresh_per_second, 1))
+        for offset, node in enumerate(self.plan.nodes):
+            state = self.statuses[node.name]
+            if state == "done":
+                glyph = self.theme.glyphs.ok
+                style = "green"
+            elif state == "running" and not self.no_anim:
+                glyph = _effort_animation_frame(self.plan.effort, tick + offset)
+                style = self.theme.accent
+            else:
+                glyph = self.theme.glyphs.queued
+                style = "grey58"
+            tree.add(Text(f"{glyph} {node.name:<9} {node.detail}", style=style))
+        elapsed = perf_counter() - self.started
+        footer = Text(f"${self.plan.estimated_cost:.2f} / ${self.plan.budget:.2f} projected · elapsed {elapsed:.1f}s", style="grey58")
+        return Group(tree, footer)
+
+
+def _build_plan_tree(plan: ExecutionPlan, theme: UiTheme) -> Tree:
+    tree = Tree(Text("compiled workflow", style=f"{theme.accent} bold"))
+    for node in plan.nodes:
+        label = f"{theme.glyphs.queued} {node.name} [{node.kind}]"
+        branch = tree.add(Text(label, style="grey70"))
+        branch.add(Text(f"runtime {node.runtime} · capability {node.capability} · schema {node.output_schema}", style="grey58"))
+        if node.max_iterations is not None:
+            branch.add(Text(f"max_iterations {node.max_iterations} · convergence {node.convergence}", style="grey58"))
+    return tree
+
+
+def _ascii_only() -> bool:
+    return bool(os.environ.get("NO_COLOR")) or (console.encoding or "utf-8").lower() in {"ascii", "us-ascii"}
