@@ -545,3 +545,113 @@ def thinkers_panel(names: Annotated[str, typer.Argument(help="Comma-separated th
 
 
 @workflows_app.command("list")
+def workflows_list() -> None:
+    for name, summary in BUILTIN_WORKFLOWS.items():
+        console.print(f"{name:<8} {summary}")
+
+
+@workflows_app.command("show")
+def workflows_show(name: Annotated[str, typer.Argument()]) -> None:
+    key = name.lower()
+    if key not in BUILTIN_WORKFLOWS:
+        raise typer.BadParameter(f"unknown workflow {name!r}")
+    console.print(f"[bold]{key}[/]\n{BUILTIN_WORKFLOWS[key]}")
+
+
+@schemas_app.command("list")
+def schemas_list() -> None:
+    for name in sorted(OUTPUT_MODELS):
+        console.print(name)
+
+
+@schemas_app.command("show")
+def schemas_show(name: Annotated[str, typer.Argument()]) -> None:
+    console.print(json.dumps(output_schema(name), indent=2, sort_keys=True))
+
+
+@providers_app.command("list")
+def providers_list(config: Annotated[Path | None, typer.Option("--config")] = None) -> None:
+    gateway = ModelGateway.from_config(config)
+    console.print("Routes", style="bold")
+    for capability, route in gateway.routes.items():
+        console.print(f" {capability:<13} {' -> '.join(route)}")
+    console.print("\nProviders", style="bold")
+    for health in gateway.probe():
+        console.print(f" {health.name:<12} {'available' if health.available else 'missing'}  models={','.join(health.models) or '-'}")
+
+
+@providers_app.command("example-config")
+def providers_example_config() -> None:
+    typer.echo(generate_example_config())
+
+
+@providers_app.command("init")
+def providers_init(out: Annotated[Path, typer.Option("--out", help="Config file to write.")] = Path("thinktank.toml")) -> None:
+    if out.exists():
+        raise typer.BadParameter(f"{out} already exists")
+    out.write_text(generate_example_config() + "\n", encoding="utf-8")
+    console.print(f"wrote {out}")
+
+
+@config_app.command("example")
+def config_example() -> None:
+    typer.echo(generate_example_config())
+
+
+@config_app.command("init")
+def config_init(out: Annotated[Path, typer.Option("--out", help="Config file to write.")] = Path("thinktank.toml")) -> None:
+    if out.exists():
+        raise typer.BadParameter(f"{out} already exists")
+    out.write_text(generate_example_config() + "\n", encoding="utf-8")
+    console.print(f"wrote {out}")
+
+
+@app.command("setup")
+def setup(
+    out: Annotated[Path, typer.Option("--out", help="Config file to write.")] = Path("thinktank.toml"),
+    provider: Annotated[str | None, typer.Option("--provider", help="Provider name.")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Primary model.")] = None,
+    review_model: Annotated[str | None, typer.Option("--review-model", help="Review model.")] = None,
+    model_reasoning: Annotated[str | None, typer.Option("--model-reasoning", "--reasoning", help="Advanced provider reasoning override.")] = None,
+    base_url: Annotated[str | None, typer.Option("--base-url", help="OpenAI-compatible base URL.")] = None,
+    network: Annotated[str | None, typer.Option("--network", help="enabled|disabled|auto.")] = None,
+    disable_storage: Annotated[bool | None, typer.Option("--disable-storage/--store-responses", help="Disable API response storage.")] = None,
+    goals: Annotated[bool | None, typer.Option("--goals/--no-goals", help="Enable goal tracking.")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing config file.")] = False,
+) -> None:
+    if out.exists() and not force:
+        raise typer.BadParameter(f"{out} already exists")
+    provider = provider or Prompt.ask("Provider", default="OpenAI")
+    model = model or Prompt.ask("Model", default="gpt-5.5")
+    review_model = review_model or Prompt.ask("Review model", default=model)
+    reasoning = get_reasoning_profile(model_reasoning or Prompt.ask("Advanced model reasoning", default="xhigh")).name
+    base_url = base_url or Prompt.ask("Base URL", default="https://openapi.junliai.org")
+    network = network or Prompt.ask("Network access", default="enabled")
+    disable_storage = (
+        _prompt_bool("Disable response storage", default=True)
+        if disable_storage is None
+        else disable_storage
+    )
+    goals = _prompt_bool("Enable goals", default=True) if goals is None else goals
+    config_text = _primary_config_text(provider, model, review_model, reasoning, base_url, network, disable_storage, goals)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(config_text + "\n", encoding="utf-8")
+    console.print(f"wrote {out}")
+
+
+@daemon_app.command("run")
+def daemon_run(
+    once: Annotated[bool, typer.Option("--once", help="Consume currently queued wakes and exit.")] = False,
+    foreground: Annotated[bool, typer.Option("--foreground", help="Run a foreground daemon loop.")] = False,
+) -> None:
+    if not once and not foreground:
+        raise typer.BadParameter("use --once or --foreground")
+    processed = _consume_due_wakes()
+    console.print(f"processed {processed} wake(s)")
+    if foreground:
+        console.print("foreground daemon loop is scaffolded; use --once for deterministic tests")
+
+
+@daemon_app.command("status")
+def daemon_status() -> None:
+    wakes = SessionStore().due_wakes()
