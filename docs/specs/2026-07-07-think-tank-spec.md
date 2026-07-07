@@ -261,3 +261,134 @@ an argument, not a program.**
   begging.
 - **Fitness:** composite from the Reviewer Court — evidence strength (argument
   auditor) + verified-claim ratio (claim ledger) + audience fit (audience modeler),
+  weights configurable.
+- **Operators:** `steelman` (strengthen weakest warrant), `attack-and-repair` (skeptic
+  finds the best objection, repairer patches or concedes), `cross-pollinate` (merge
+  argument branches of two elite parents), `radicalize` / `moderate` (move along an
+  axis — exploration pressure).
+- Generation: sample parents from archive (uniform over filled cells — favors
+  diversity), apply operators via `fast` models, evaluate via cheap court, admit to
+  archive if cell-best. Termination: `--generations G` (default 6) or loop-until-dry:
+  2 consecutive generations with no admissions.
+
+### 5.4 Adversarial Verify Loop — `loop: verify`
+
+Basis: LLM-as-judge bias literature; jury/panel evaluation (PoLL, 2404.18796);
+debate-for-oversight results showing refutation beats affirmation for error-finding.
+
+1. An extractor decomposes the draft into atomic factual claims → claim ledger rows.
+2. Claims are triaged by (load-bearingness × checkability); the budget is spent
+   top-down — no silent cap: unchecked claims are marked `unverified`, never implied-true.
+3. Per claim, K skeptics (default 3, provider-diverse) are prompted to **refute** it
+   with tool access (web search, arXiv, source re-fetch). Default-to-refuted framing
+   counters agreement bias.
+4. Verdict fusion: ≥⌈K/2⌉ refute → claim removed or rewritten; split → `contested`
+   with both sources cited; none → `verified` with citations attached.
+5. The writer must re-render the report so every claim's epistemic status is visible
+   (verified silently, `[contested]` / `[unverified]` markers inline; summary table in
+   an appendix).
+
+### 5.5 Research Loop — `loop: research`
+
+Basis: STORM (2402.14207) and Co-STORM perspective-guided questioning; deep-research
+agent patterns; gpt-researcher's planner/executor split.
+
+- **Perspective discovery:** survey agent finds 4–6 stakeholder/disciplinary
+  perspectives on the topic.
+- **Question generation:** per perspective, a questioner in simulated conversation
+  with a topic-expert agent produces concrete research questions (STORM's key trick —
+  perspective-grounded questions beat generic decomposition).
+- **Multi-modal sweep:** parallel searchers per question × modality: web, arXiv/paper
+  search, GitHub repos (code-as-evidence, via a CLI runtime when deep repo reading is
+  needed), news. Each source is digested to `SourceNote{url, quotes[], reliability, stance}`.
+- **Outline-grounded synthesis:** outline built from perspectives × findings; a
+  `long-context` writer drafts section-by-section citing only ledgered SourceNotes —
+  the writer cannot introduce uncited facts (extractor cross-checks, §5.4 catches leaks).
+
+### 5.6 Science Loop — `loop: science` (opt-in mode)
+
+Basis: AI Scientist v2 (Sakana 2025), Agent Laboratory (2501.04227), Google AI
+co-scientist tournament refinement (2025).
+
+hypothesize (evolve loop over hypotheses, fitness = novelty × testability) →
+plan experiment (methods reviewer must approve power/confounds before spend) →
+execute (CodexRuntime or ClaudeCodeRuntime in a sandboxed `--sandbox ./lab`
+workspace; deterministic seeds; artifacts retained) → analyze (separate agent,
+never the experimenter, to avoid motivated reasoning) → write-up → Reviewer Court
+with a methods-focused domain reviewer. Hard rails: no network installs beyond an
+allowlist, no writes outside the sandbox, wall-clock and cost ceilings per experiment.
+
+### 5.7 Test-Time Scaling Policy — `scale:` block on any node
+
+Basis: compute-optimal test-time scaling (2408.03314); Google co-scientist Elo
+tournaments.
+
+Any node may declare `scale: {strategy, n, judge}`: `best_of_n` (n samples → PoLL
+panel picks; cheap nodes), `tournament` (single-elim pairwise judging with order
+swap; expensive nodes), `self_consistency` (majority over extracted answers;
+classification-shaped nodes). The Conductor allocates the scaling budget from the
+run's remaining ceiling: scaling is the *first* thing degraded (n reduced, tournament
+→ best-of-2) when the Ledger projects overrun, and the degradation is logged to the
+report appendix.
+
+### 5.8 Long-Running Loops — `duration:` block on any loop
+
+Loops in §5.1–5.6 are bounded within a single run. A loop may additionally declare a
+`duration` block that promotes it to a **long-running loop**: a session that persists
+for hours or days, survives process restarts, and accumulates results incrementally.
+
+```yaml
+research:
+  loop: research
+  duration: {mode: continuous, checkpoint_every: 10m, budget_per_day: 3.00,
+             wake: [{cron: "0 7 * * *"}, {on: new_sources}], max_age: 14d}
+```
+
+Semantics:
+
+- **Checkpointing:** the loop's full state (archive, claim ledger cursor, memory
+  writes, iteration counters) is snapshotted to the journal every
+  `checkpoint_every` and at every iteration boundary. Recovery is exactly `resume`
+  (§8.3) — a long-running loop is *defined* as a loop whose every iteration is
+  individually resumable; the compiler rejects a `duration` block on any node whose
+  iteration state cannot be journaled (rule S10).
+- **Scheduler:** a lightweight daemon (`thinktank daemon`, launchd/systemd unit
+  provided) wakes sessions on `cron` expressions or on events: `new_sources` (a
+  cheap sweep found material newer than the last checkpoint), `budget_refresh`
+  (daily budget re-minted), `manual` (`thinktank poke <session-id>`). Between wakes
+  the process exits — no idle token burn, no resident LLM state.
+- **Budget over time:** `budget_per_day` mints a fresh daily `BudgetToken`; unspent
+  budget does NOT roll over by default (`rollover: true` to allow, capped at 3×
+  daily). The Ledger tracks lifetime spend; `max_age` or `budget_lifetime` hard-stops
+  the session with a final report.
+- **Incremental output:** each wake that changes conclusions re-renders the report
+  with a dated changelog section ("what changed since <last checkpoint>: claim X
+  moved contested→refuted, new elite thesis in cell (heterodox, near-term)").
+  Unchanged wakes append only a heartbeat line to the journal.
+- **Drift control:** long-running evolve/research sessions re-run the *verify loop*
+  on previously `verified` claims older than `reverify_after` (default 7d) — sources
+  rot, papers get retracted. Status downgrades propagate to the argument map and can
+  reopen court findings.
+- **Sanity checks for long-running mode** (extends §6.2): S10 — every iteration
+  journaled/resumable; S11 — daemon installed & schedulable (else abort with the
+  launchd/systemd install hint); S12 — `budget_per_day × expected_days ≤
+  budget_lifetime`; S13 — wake events resolvable (a `new_sources` wake requires the
+  research loop's source queries to be persisted).
+
+CLI surface:
+
+```
+thinktank watch "question" --daily-budget 3.00 --for 14d   # start a long-running session
+thinktank sessions [list|show|pause|resume|stop <id>]      # manage them
+thinktank poke <id>                                        # force a wake now
+```
+
+## 6. Workflow Compiler & Sanity Checker
+
+### 6.1 Compilation
+
+CLI mode + flags select a **workflow template** (YAML, shipped in-package; user
+templates in `.thinktank/workflows/`). Templates declare nodes, edges, loop blocks,
+capabilities, runtimes, schemas, and budget shares. The compiler resolves them into a
+frozen `ExecutionGraph` — after compilation nothing about the shape can change at
+runtime; only node *contents* are model-generated.
