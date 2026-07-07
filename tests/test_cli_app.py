@@ -104,3 +104,109 @@ def test_providers_init_writes_config() -> None:
 
         assert result.exit_code == 0, result.output
         text = open("thinktank.toml", encoding="utf-8").read()
+        assert "model_provider" in text
+        assert "wire_api = \"responses\"" in text
+        assert "OPENAI_API_KEY" in text
+
+
+def test_config_init_writes_primary_config() -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["config", "init", "--out", "thinktank.toml"])
+
+        assert result.exit_code == 0, result.output
+        text = open("thinktank.toml", encoding="utf-8").read()
+        assert "model = \"gpt-5.5\"" in text
+        assert "[features]" in text
+        assert "goals = true" in text
+
+
+def test_config_example_prints_valid_toml_headers() -> None:
+    result = runner.invoke(app, ["config", "example"])
+
+    assert result.exit_code == 0, result.output
+    assert "[model_providers.OpenAI]" in result.output
+    assert "[features]" in result.output
+
+
+def test_setup_noninteractive_writes_config() -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            app,
+            [
+                "setup",
+                "--provider",
+                "OpenAI",
+                "--model",
+                "gpt-5.5",
+                "--review-model",
+                "gpt-5.5",
+                "--model-reasoning",
+                "auto",
+                "--base-url",
+                "https://openapi.junliai.org",
+                "--network",
+                "enabled",
+                "--disable-storage",
+                "--goals",
+                "--out",
+                "thinktank.toml",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = load_config(Path("thinktank.toml"))
+        assert config["model_provider"] == "OpenAI"
+        assert config["model"] == "gpt-5.5"
+        assert config["model_reasoning_effort"] == "auto"
+        assert config["disable_response_storage"] is True
+        assert config["features"]["goals"] is True
+
+
+def test_setup_refuses_existing_file_without_force() -> None:
+    with runner.isolated_filesystem():
+        Path("thinktank.toml").write_text("old = true\n", encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            [
+                "setup",
+                "--provider",
+                "OpenAI",
+                "--model",
+                "gpt-5.5",
+                "--review-model",
+                "gpt-5.5",
+                "--model-reasoning",
+                "high",
+                "--base-url",
+                "https://openapi.junliai.org",
+                "--network",
+                "enabled",
+                "--disable-storage",
+                "--goals",
+                "--out",
+                "thinktank.toml",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+
+def test_setup_force_overwrites_existing_file() -> None:
+    with runner.isolated_filesystem():
+        Path("thinktank.toml").write_text("old = true\n", encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            [
+                "setup",
+                "--provider",
+                "OpenAI",
+                "--model",
+                "gpt-5.5",
+                "--review-model",
+                "gpt-5.5",
+                "--model-reasoning",
+                "high",
+                "--base-url",
