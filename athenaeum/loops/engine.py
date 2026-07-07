@@ -144,3 +144,148 @@ class DeterministicLoopEngine:
         outline = [OutlineSection(id="sec-summary", title="Executive Summary", claim_ids=[claim.id for claim in claims])]
         output = ResearchOutput(question=self.context.question, perspectives=perspectives, research_questions=questions, sources=sources, outline=outline, claims=claims, citations=citations)
         self._write("research.json", output)
+        self._write_jsonl("source_notes.jsonl", [source.model_dump(mode="json") for source in sources])
+        return output
+
+    def debate(self, research: ResearchOutput) -> DebateOutput:
+        roles = ["economist", "security", "civil-liberties", "operator", "contrarian", "domain"]
+        count = {"low": 2, "medium": 3, "high": 4, "vhigh": 5, "max": 6}.get(self.context.effort, 4)
+        positions = []
+        for index, role in enumerate(roles[:count], start=1):
+            arg = ToulminArgument(
+                claim=f"{role} position on {self.context.question}",
+                grounds=f"Research identified {len(research.sources)} local source notes and {len(research.perspectives)} perspectives.",
+                warrant="A decision should survive multiple stakeholder lenses before being treated as robust.",
+                backing="ATHENAEUM debate loop design.",
+                qualifier="minimal-mode scaffold",
+                rebuttal="External evidence can overturn this local analysis.",
+            )
+            positions.append(Position(id=f"pos-{index}", debater=role, thesis=f"{role} weighs the question through its primary risk lens.", toulmin_args=[arg], concessions=["Requires live evidence for final confidence."]))
+        rounds = [DebateRound(round_index=index, exchanges=[f"round {index}: sparse critique exchange among {count} debaters"], converged_position_ids=[] ) for index in range(1, {"low": 1, "medium": 2, "high": 3, "vhigh": 4, "max": 5}.get(self.context.effort, 3) + 1)]
+        output = DebateOutput(question=self.context.question, positions=positions, rounds=rounds, convergence=ConvergenceReport(score=0.62, reason="Deterministic local positions overlap but retain unresolved objections."), unresolved_objections=["Evidence quality is not established in minimal mode."])
+        self._write("debate.json", output)
+        self._write_jsonl("debate_transcript.jsonl", [round_.model_dump(mode="json") for round_ in rounds])
+        return output
+
+    def draft(self, research: ResearchOutput, debate: DebateOutput) -> ReportOutput:
+        claims = [*research.claims]
+        markdown = "\n".join([
+            f"# ATHENAEUM Report: {self.context.question}",
+            "",
+            f"Run: `{self.context.run_id}`  ",
+            f"Mode: `{self.context.mode}`  ",
+            f"Effort: `{self.context.effort}`  ",
+            f"Audience: {self.context.audience or 'educated generalist'}.",
+            "",
+            "## Executive Summary",
+            f"The minimal engine examined {len(research.perspectives)} perspectives and {len(debate.positions)} debate positions. It does not claim live factual completeness.",
+            "",
+            "## Argument Map",
+            *[f"- {position.debater}: {position.thesis}" for position in debate.positions],
+            "",
+            "## Claim Ledger",
+            *[f"- `{claim.status}` {claim.text}" for claim in claims],
+        ])
+        output = ReportOutput(title=f"ATHENAEUM Report: {self.context.question}", question=self.context.question, summary="Deterministic minimal draft generated from local research and debate artifacts.", report_markdown=markdown, claims=claims, citations=research.citations, run_id=self.context.run_id)
+        self._write("draft.initial.json", output)
+        self._write_text("draft.initial.md", output.report_markdown)
+        return output
+
+    def verify(self, draft: ReportOutput, research: ResearchOutput) -> VerifyOutput:
+        rows = []
+        skeptic_runs = []
+        summary = VerificationSummary()
+        source_text = " ".join(quote for source in research.sources for quote in source.quotes).lower()
+        for index, claim in enumerate(draft.claims, start=1):
+            overlap = any(token in source_text for token in self.context.keywords(claim.text, 4))
+            status = "verified" if overlap and claim.citation_ids else "unverified"
+            setattr(summary, status, getattr(summary, status) + 1)
+            claim = claim.model_copy(update={"status": status, "confidence": 0.72 if status == "verified" else 0.35})
+            rows.append(ClaimLedgerRow(claim=claim, source_node="draft", load_bearing=3, checkability=4, verdict_reason="Local source-note token overlap." if overlap else "No supporting source note found."))
+            skeptic_runs.append(SkepticVerdict(skeptic_id=f"sk-{index}", claim_id=claim.id, refutes=status != "verified", rationale="Minimal skeptic checks source-note overlap only.", citation_ids=claim.citation_ids))
+        output = VerifyOutput(claims=rows, skeptic_runs=skeptic_runs, summary=summary)
+        self._write("verify.json", output)
+        self._write_jsonl("claims.jsonl", [row.claim.model_dump(mode="json") for row in rows])
+        self._write_jsonl("skeptic_transcripts.jsonl", [run.model_dump(mode="json") for run in skeptic_runs])
+        return output
+
+    def court(self, draft: ReportOutput, verify: VerifyOutput, debate: DebateOutput) -> ReviewerCourtOutput:
+        argmap = ArgumentMap(arguments=[arg for position in debate.positions for arg in position.toulmin_args], weak_chains=[row.claim.id for row in verify.claims if row.claim.status != "verified"])
+        panels = []
+        panel_names = ["argument", "audience", "sentiment", "thinker", "domain"]
+        for name in panel_names:
+            severity = "major" if name == "argument" and argmap.weak_chains else "minor"
+            panels.append(PanelOpinion(panel=name, verdicts=[Verdict(reviewer=name, severity=severity, section_anchor="report", finding=f"{name} panel completed deterministic review.", evidence="Review used local artifacts only.", suggested_fix="Run with live providers for external evidence.", confidence=0.7)]))
+        all_verdicts = [verdict for panel in panels for verdict in panel.verdicts]
+        opinion = CourtOpinion(score_before=6.0, score_after=7.0, blockers=0, major_findings=sum(1 for verdict in all_verdicts if verdict.severity == "major"), verdicts=all_verdicts)
+        output = ReviewerCourtOutput(argmap=argmap, panels=panels, opinion=opinion)
+        self._write("court.json", output)
+        self._write("argmap.json", argmap)
+        return output
+
+    def revise(self, draft: ReportOutput, verify: VerifyOutput, court: ReviewerCourtOutput) -> ReviseOutput:
+        final_claims = [row.claim for row in verify.claims]
+        ledger = _claim_status_lines(final_claims)
+        body = _replace_section(draft.report_markdown, "Claim Ledger", ledger)
+        final_markdown = body + "\n\n## Verification Appendix\n" + _claim_status_summary(final_claims) + "\n\n" + ledger + "\n\n## Court Summary\n" + f"Major findings addressed: {court.opinion.major_findings}."
+        final = draft.model_copy(update={"report_markdown": final_markdown, "claims": final_claims, "court": court.opinion, "summary": draft.summary + " Claims were marked with deterministic verification status."})
+        iteration = RevisionIteration(index=1, score_before=court.opinion.score_before, score_after=court.opinion.score_after, actions=["Added verification appendix.", "Attached court summary."])
+        output = ReviseOutput(iterations=[iteration], final_report=final, plateau_reason="minimal mode performs one deterministic revision")
+        self._write_jsonl("revisions.jsonl", [iteration.model_dump(mode="json")])
+        self._write_text("report.revised.md", final.report_markdown)
+        self._write("revise.json", output)
+        return output
+
+    def _write(self, name: str, model) -> None:
+        path = self.context.artifact_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if hasattr(model, "model_dump"):
+            data = model.model_dump(mode="json")
+        else:
+            data = model
+        path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _write_jsonl(self, name: str, rows: list[dict]) -> None:
+        path = self.context.artifact_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+
+    def _write_text(self, name: str, text: str) -> None:
+        path = self.context.artifact_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _axis_value(self, prompt: str, axis: str, index: int) -> str:
+        values = {
+            "novelty": ("conventional", "adjacent", "heterodox"),
+            "risk": ("conservative", "balanced", "aggressive"),
+            "horizon": ("near", "mid", "far"),
+        }.get(axis, ("low", "medium", "high"))
+        offset = int(self.context.stable_id("axis", prompt, axis, length=2), 16)
+        return values[(offset + index) % len(values)]
+
+
+def _claim_status_lines(claims: list[ClaimRef]) -> str:
+    return "\n".join(f"- `{claim.status}` {claim.text}" for claim in claims)
+
+
+def _claim_status_summary(claims: list[ClaimRef]) -> str:
+    counts = {status: 0 for status in ("verified", "contested", "unverified", "refuted")}
+    for claim in claims:
+        counts[claim.status] += 1
+    return " · ".join(f"{status}: {count}" for status, count in counts.items() if count)
+
+
+def _replace_section(markdown: str, title: str, body: str) -> str:
+    heading = f"## {title}"
+    lines = markdown.splitlines()
+    try:
+        start = lines.index(heading)
+    except ValueError:
+        return f"{markdown.rstrip()}\n\n{heading}\n{body}"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## "):
+            end = index
+            break
+    return "\n".join([*lines[:start], heading, body, *lines[end:]]).rstrip()
