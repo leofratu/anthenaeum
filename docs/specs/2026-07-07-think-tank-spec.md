@@ -523,3 +523,134 @@ Dedup (embedding-cluster findings, keep the best-evidenced exemplar per cluster)
 severity-rank → cross-examine: for each `blocker`/`major`, a `cheap-judge` PoLL panel
 (3 small models, order-swapped pairwise where applicable) votes on validity, killing
 hallucinated critiques. Output `CourtOpinion` caps the revision loop's work queue at
+the top 12 findings per iteration (evidence: revision quality degrades with unbounded
+critique lists).
+
+## 8. Knowledge Substrate & Data Contracts
+
+### 8.1 Stores
+
+| Store | Backing | Contents |
+|---|---|---|
+| Episodic memory | SQLite + embeddings | cross-run `Lesson` records (§5.2), topic-tagged, decay-weighted |
+| Claim ledger | `runs/<id>/claims.jsonl` | one row per atomic claim: text, source node, verification verdict, citations, skeptic transcripts refs |
+| Citation DB | SQLite | deduped sources: url, title, retrieved_at, reliability score, quote spans |
+| Artifact store | `runs/<id>/artifacts/` | drafts, argmap.json, debate transcripts, evolve archive snapshots, court opinions |
+| Run journal | `runs/<id>/journal.jsonl` | append-only events: node start/end, iteration results, costs, watchdog actions |
+
+### 8.2 The AgentResult envelope
+
+Every runtime's final event, and every inter-node payload, is:
+
+```python
+class AgentResult(BaseModel):
+    content: Any                # validated against the node's declared schema
+    claims: list[ClaimRef]      # atomic claims asserted by this content
+    citations: list[CitationRef]
+    confidence: float           # self-estimate, calibrated downstream, never trusted raw
+    cost: CostDelta             # tokens in/out per model, USD
+    runtime_meta: RuntimeMeta   # runtime name, model actually used, retries, duration
+```
+
+### 8.3 Resume
+
+`thinktank resume <run-id>` replays the journal: nodes/iterations with recorded
+`final` events are served from the artifact store; execution restarts at the first
+incomplete node with the same seeds and remaining budget. Journal events are hashed
+over (node id, input digest, config digest) so a changed config invalidates only the
+affected suffix.
+
+## 9. CLI Reference & Minimal Usage
+
+### 9.1 Zero-config path (R2)
+
+```bash
+export OPENAI_API_KEY=...        # any ONE supported provider key is enough
+pipx install athenaeum
+thinktank "Should the EU regulate open-weight models?"
+```
+
+With one key: `low`/`medium`/`high` work with degraded provider diversity logged.
+`vhigh`/`max`/`ultra` require at least two available non-stub providers and fail S9
+instead of silently degrading. Output:
+`./report.md` + `./runs/<id>/` artifacts. Progress renders as a live `rich` tree.
+
+### 9.2 Full surface
+
+```
+thinktank [ask] "question"     # default: auto workflow (research→debate→draft→verify→court→revise)
+  --effort low|medium|high|vhigh|max|ultra
+  --iq 120|140|150|160|180|iq-high|iq-max|iq-ultra
+  --mode auto|deliberate|decide|brief     --audience "<free text>"
+  --panel <persona,...>                   --budget <USD, default 5.00>
+  --runtime api|claude|codex|gemini|<custom>   --out <path>   --seed <int>
+  --dry-run                               --workflow <custom.yaml>
+thinktank evolve "prompt" [--generations 6] [--axes novelty,risk,horizon]
+thinktank review <file.md> [--court full|argument,audience,...] [--audience ...]
+thinktank science "hypothesis" --sandbox <dir> [--max-experiments 5]
+thinktank watch "question" --daily-budget 3.00 --for 14d    # long-running session (§5.8)
+thinktank sessions list|show|pause|resume|stop <id>
+thinktank poke <id>             # force-wake a long-running session
+thinktank resume <run-id>
+thinktank doctor                # environment sanity
+thinktank personas|workflows list|show <id>
+```
+
+### 9.3 Effort
+
+`--effort` (default `high`) is a single knob that multiplies the compiled workflow —
+capability bias, debater count × rounds, skeptics K, scaling strategy, court panels,
+evolve generations, reflexion iterations, and the default budget. The full profile
+table, the interactive effort slider UI, and per-tier animations are specified in
+`2026-07-07-cli-visual-design.md` §1. Explicit flags always override effort defaults.
+`--iq` is a user-facing alias layer over the same effort profiles; e.g. `--iq 140`
+maps to `high`, `--iq 160` maps to `max`, and `--iq 180` maps to `ultra`.
+`vhigh`/`max`/`ultra` require at least two available non-stub providers (sanity rule
+S9 becomes hard). Effort is recorded in the journal and shown in the report appendix.
+
+### 9.4 Budget & Ledger
+
+`--budget` sets a hard USD ceiling. The Conductor mints per-node `BudgetToken`s from
+`budget_share`s; unspent share flows back to the pool. The Ledger meters API runtimes
+exactly (usage fields × price table) and CLI runtimes via their reported usage (Codex
+`--json` usage events; Claude Code `stream-json` result usage) with a conservative
+estimator fallback. `runs/<id>/ledger.json` itemizes cost per node per model; the
+report appendix includes the total and any degradations taken.
+
+## 10. Threats to Validity & Risk Register
+
+| Risk | Mitigation |
+|---|---|
+| Persona prompting may not add reasoning quality | §7.4 honesty clause: diversity-only role, outcome-blind fusion, domain downweighting |
+| LLM-judge biases (position, verbosity, self-preference) | order swap, length-normalized rubrics, judge/generator separation (S6), PoLL panels |
+| Sycophantic convergence in debate | provider diversity, sparse topology, degeneracy guard contrarian injection |
+| Hallucinated citations | citations only from fetched SourceNotes; verify loop re-fetches; unverifiable → `[unverified]` |
+| Cost blowup | S5 pre-flight estimate, hard ceiling, §5.7 degradation ladder, watchdog checkpoint-halt |
+| CLI runtime drift (flags change across versions) | `health()` version pinning + conformance smoke test in CI against recorded transcripts |
+| Provider schema divergence | single normalization layer (§3.4) + per-provider contract tests |
+| Prompt injection via fetched web content | SourceNotes are data-fenced (quoted, never executed as instructions); tool-bearing reviewers get injection preamble + allowlist domains for the science loop |
+
+## 11. Milestones
+
+- **M1 — Spine:** ModelGateway (anthropic/openai-compat/google), Conductor, compiler +
+  static sanity rules, ApiRuntime, research loop, writer, Ledger, minimal CLI. *Exit:
+  zero-config `thinktank "q"` yields a cited report.*
+- **M2 — Court:** claim ledger + verify loop, all five reviewer classes, Chief
+  Justice, intra-run reflexion. *Exit: `thinktank review` works standalone.*
+- **M3 — Deliberation:** debate loop, evolve loop + archive, test-time scaling
+  policies, dry-run. *Exit: `evolve` produces a diverse elite archive.*
+- **M4 — Runtimes:** Claude Code / Codex / Gemini CLI adapters + doctor + resume.
+- **M5 — Science:** sandboxed science loop, cross-run episodic memory.
+
+## 12. Source Literature
+
+See `docs/specs/2026-07-07-research-citations.md` for the annotated bibliography.
+Inline citations above: arXiv:2305.14325 (debate), 2310.02170 (DyLAN), 2402.16823
+(GPTSwarm), 2303.11366 (Reflexion), 2303.17651 (Self-Refine), FunSearch (Nature
+2023), AlphaEvolve (DeepMind 2025), 2505.22954 (Darwin Gödel Machine), 2402.14207
+(STORM), 2501.04227 (Agent Laboratory), AI Scientist v2 (Sakana 2025), Google AI
+co-scientist (2025), 2404.18796 (PoLL), 2406.12708 (AgentReview), 2311.10054
+(persona-prompting negative result), 2408.03314 (test-time compute), Toulmin (1958)
+*The Uses of Argument*, Walton et al. (2008) *Argumentation Schemes*.
+
+— end of spec —
