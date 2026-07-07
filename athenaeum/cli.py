@@ -108,3 +108,112 @@ def main(
     effort: Annotated[str, typer.Option("--effort", help="low|medium|high|vhigh|max|ultra plus iq-* aliases")] = "high",
     iq: Annotated[str | None, typer.Option("--iq", help="IQ-style effort alias, e.g. 140, iq160, iq-high")] = None,
     runtime: Annotated[str, typer.Option("--runtime", help="auto|minimal|api|opencode|codex|agy|claude|gemini")] = "auto",
+    budget: Annotated[float | None, typer.Option("--budget", help="Hard USD budget ceiling.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Compile and print the workflow only.")] = False,
+    out: Annotated[Path, typer.Option("--out", help="Report output path.")] = Path("report.md"),
+    config: Annotated[Path | None, typer.Option("--config", help="Path to thinktank.toml.")] = None,
+    mode: Annotated[str, typer.Option("--mode", help="auto|deliberate|decide|brief")] = "auto",
+    audience: Annotated[str | None, typer.Option("--audience", help="Audience profile.")] = None,
+    panel: Annotated[str | None, typer.Option("--panel", help="Public thinker lenses or preset, e.g. risk or einstein,kahneman.")] = None,
+    seed: Annotated[int | None, typer.Option("--seed", help="Deterministic seed.")] = None,
+    workflow: Annotated[str, typer.Option("--workflow", help="Workflow template name or path.")] = "auto",
+    reasoning_effort: Annotated[str, typer.Option("--reasoning-effort", help="auto|off|low|medium|high|vhigh|xhigh|max")] = "auto",
+    no_anim: Annotated[bool, typer.Option("--no-anim", help="Disable live animation.")] = False,
+    interactive_effort: Annotated[bool, typer.Option("-i", "--interactive-effort", help="Open the effort slider before run.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON for ask/dry-run.")] = False,
+    minimal: Annotated[bool, typer.Option("--minimal", help="Force deterministic in-process runtime.")] = False,
+) -> None:
+    ctx.obj = {
+        "effort": iq or effort,
+        "iq": iq,
+        "runtime": "minimal" if minimal else runtime,
+        "budget": budget,
+        "dry_run": dry_run,
+        "out": out,
+        "config": config,
+        "mode": mode,
+        "audience": audience,
+        "panel": panel,
+        "seed": seed,
+        "workflow": workflow,
+        "reasoning_effort": reasoning_effort,
+        "interactive_effort": interactive_effort,
+        "no_anim": no_anim or json_output,
+        "json_output": json_output,
+    }
+
+
+@app.command()
+def ask(
+    ctx: typer.Context,
+    question: Annotated[str, typer.Argument(help="Question to research.")],
+    effort: Annotated[str | None, typer.Option("--effort")] = None,
+    iq: Annotated[str | None, typer.Option("--iq", help="IQ-style effort alias, e.g. 140, iq160, iq-high")] = None,
+    runtime: Annotated[str | None, typer.Option("--runtime")] = None,
+    budget: Annotated[float | None, typer.Option("--budget")] = None,
+    dry_run: Annotated[bool | None, typer.Option("--dry-run")] = None,
+    out: Annotated[Path | None, typer.Option("--out")] = None,
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    mode: Annotated[str | None, typer.Option("--mode")] = None,
+    audience: Annotated[str | None, typer.Option("--audience")] = None,
+    panel: Annotated[str | None, typer.Option("--panel", help="Public thinker lenses or preset, e.g. risk or einstein,kahneman.")] = None,
+    seed: Annotated[int | None, typer.Option("--seed")] = None,
+    workflow: Annotated[str | None, typer.Option("--workflow")] = None,
+    reasoning_effort: Annotated[str | None, typer.Option("--reasoning-effort", help="auto|off|low|medium|high|vhigh|xhigh|max")] = None,
+    no_anim: Annotated[bool | None, typer.Option("--no-anim")] = None,
+    interactive_effort: Annotated[bool | None, typer.Option("-i", "--interactive-effort")] = None,
+    json_output: Annotated[bool | None, typer.Option("--json")] = None,
+    minimal: Annotated[bool, typer.Option("--minimal")] = False,
+) -> None:
+    parent = ctx.parent.obj if ctx.parent and isinstance(ctx.parent.obj, dict) else {}
+    _handle_question(
+        question,
+        iq or effort or parent.get("effort", "high"),
+        "minimal" if minimal else runtime or parent.get("runtime", "minimal"),
+        budget if budget is not None else parent.get("budget"),
+        dry_run if dry_run is not None else parent.get("dry_run", False),
+        out or parent.get("out", Path("report.md")),
+        config or parent.get("config"),
+        mode or parent.get("mode", "auto"),
+        audience if audience is not None else parent.get("audience"),
+        panel if panel is not None else parent.get("panel"),
+        seed if seed is not None else parent.get("seed"),
+        workflow or parent.get("workflow", "auto"),
+        reasoning_effort or parent.get("reasoning_effort", "auto"),
+        interactive_effort if interactive_effort is not None else parent.get("interactive_effort", False),
+        no_anim if no_anim is not None else parent.get("no_anim", False),
+        json_output if json_output is not None else parent.get("json_output", False),
+    )
+
+
+@app.command()
+def doctor(config: Annotated[Path | None, typer.Option("--config")] = None) -> None:
+    registry = RuntimeRegistry.from_config(config)
+    render_doctor([runtime.health() for runtime in registry.all()])
+    console.print("\nAPI Providers", style="bold")
+    for health in ModelGateway.from_config(config).probe():
+        status = "ok" if health.available else "missing"
+        console.print(f" {status:<7} {health.name:<12} {health.detail or ''}")
+
+
+@runtimes_app.command("list")
+def runtimes_list(config: Annotated[Path | None, typer.Option("--config")] = None) -> None:
+    registry = RuntimeRegistry.from_config(config)
+    rows = [(runtime.name, runtime.definition.binary, runtime.definition.args) for runtime in registry.all()]
+    render_runtime_list(rows)
+
+
+@runtimes_app.command("run")
+def runtimes_run(
+    runtime: Annotated[str, typer.Argument(help="Runtime name.")],
+    prompt: Annotated[str, typer.Argument(help="Task prompt to send to the runtime.")],
+    out: Annotated[Path, typer.Option("--out")] = Path("runtime-result.md"),
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+    deadline: Annotated[int, typer.Option("--deadline")] = 600,
+    reasoning_effort: Annotated[str, typer.Option("--reasoning-effort")] = "auto",
+) -> None:
+    registry = RuntimeRegistry.from_config(config)
+    selected = registry.get(runtime)
+    task = AgentTask(prompt=prompt, output_schema=_report_schema(), deadline_seconds=deadline, reasoning_effort=get_reasoning_profile(reasoning_effort).name)
+    try:
+        result = asyncio.run(_run_selected_runtime(selected, task))
