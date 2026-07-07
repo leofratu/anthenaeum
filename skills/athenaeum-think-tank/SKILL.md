@@ -48,3 +48,52 @@ thinktank --json --dry-run --minimal --effort iq-high --reasoning-effort max "Au
 
 Skill install examples:
 
+```bash
+python3 skills/athenaeum-think-tank/scripts/install_skill.py --target codex --symlink
+python3 skills/athenaeum-think-tank/scripts/install_skill.py --target codex-user --symlink
+python3 skills/athenaeum-think-tank/scripts/install_skill.py --target claude-project --symlink
+python3 skills/athenaeum-think-tank/scripts/install_skill.py --target claude-user
+```
+
+Interactive run:
+
+```text
+python3 -m athenaeum interactive --runtime auto --effort iq-high --reasoning-effort auto
+/setup
+/provider OpenAI
+/model gpt-5.5
+/model review OpenAI/gpt-5.5
+/base-url https://openapi.junliai.org
+/iq
+/save-config thinktank.toml
+/goal Decide whether to launch the pilot
+/plan What would make this pilot fail?
+/run What would make this pilot fail?
+/goal complete
+```
+
+## Panel Guidance
+
+Ask panelists for short conclusions, assumptions, objections, falsifiers, evidence needed, and confidence. Do not ask for hidden chain of thought, private reasoning traces, or claims to literally be a public figure. Fuse panel findings by evidence quality, not by persona prestige.
+
+## Claude Usage
+
+For Claude or other agents, treat this folder as a portable skill bundle: read `SKILL.md`, then load only the referenced files needed for the task. Codex-specific metadata in `agents/openai.yaml` is optional UI metadata and should not be assumed outside Codex.
+
+## Validate
+
+Run these checks after editing or installing the skill:
+
+```bash
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" skills/athenaeum-think-tank
+python3 -m athenaeum --help
+python3 -m athenaeum doctor
+python3 -m athenaeum providers list
+python3 -m athenaeum reasoning xhigh
+python3 -m athenaeum thinkers list
+python3 -m athenaeum thinkers presets
+python3 -m athenaeum thinkers panel einstein,kahneman
+python3 -m athenaeum thinkers panel risk
+python3 -m athenaeum --json --dry-run --minimal --effort iq-high --reasoning-effort max "Audit reusable skill readiness"
+python3 skills/athenaeum-think-tank/scripts/install_skill.py --target codex --target claude-project --symlink --force
+```
