@@ -217,3 +217,113 @@ def runtimes_run(
     task = AgentTask(prompt=prompt, output_schema=_report_schema(), deadline_seconds=deadline, reasoning_effort=get_reasoning_profile(reasoning_effort).name)
     try:
         result = asyncio.run(_run_selected_runtime(selected, task))
+    except (RuntimeUnavailable, RuntimeExecutionError, SchemaValidationError) as exc:
+        typer.echo(f"runtime failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    out.write_text(_report_text(result.content), encoding="utf-8")
+    render_completion(str(out), result, _report_text(result.content))
+
+
+@app.command()
+def effort(
+    level: Annotated[str | None, typer.Argument(help="Optional effort level.")] = None,
+    select: Annotated[bool, typer.Option("--select", "-s", help="Open the keyboard-driven effort slider.")] = False,
+    list_levels: Annotated[bool, typer.Option("--list", help="Print effort levels as a table.")] = False,
+) -> None:
+    selected = get_effort(level or "high").name
+    if list_levels:
+        _print_effort_table()
+        return
+    if select:
+        selected = select_effort_slider(selected)
+        console.print(f"selected effort={selected}")
+        return
+    if level:
+        render_effort_slider(selected)
+        return
+    if console.is_terminal:
+        selected = select_effort_slider(selected)
+        console.print(f"selected effort={selected}")
+        return
+    _print_effort_table()
+
+
+def _print_effort_table() -> None:
+    table = [(name, profile.tagline, profile.scale_strategy, f"${profile.default_budget:.2f}") for name, profile in EFFORTS.items()]
+    for name, tagline, scale, budget_text in table:
+        console.print(f"{name:<7} {tagline:<18} {scale:<14} {budget_text}")
+
+
+@app.command("reasoning")
+def reasoning(level: Annotated[str | None, typer.Argument(help="Optional reasoning effort level.")] = None) -> None:
+    if level:
+        profile = get_reasoning_profile(level)
+        console.print(f"[bold]{profile.name}[/] - {profile.description}")
+        console.print(f"openai={profile.openai_effort or 'default'} · anthropic_budget={profile.anthropic_budget_tokens} · google_budget={profile.google_thinking_budget}")
+        return
+    for name, profile in REASONING_PROFILES.items():
+        console.print(f"{name:<7} {profile.description}")
+
+
+@app.command("interactive")
+def interactive(
+    runtime: Annotated[str, typer.Option("--runtime")] = "auto",
+    effort: Annotated[str, typer.Option("--effort")] = "high",
+    iq: Annotated[str | None, typer.Option("--iq", help="IQ-style effort alias, e.g. 140, iq160, iq-high")] = None,
+    reasoning_effort: Annotated[str, typer.Option("--reasoning-effort")] = "auto",
+    budget: Annotated[float | None, typer.Option("--budget")] = None,
+    audience: Annotated[str | None, typer.Option("--audience")] = None,
+    config: Annotated[Path | None, typer.Option("--config")] = None,
+) -> None:
+    defaults = _config_defaults(config)
+    state = InteractiveState(
+        provider=defaults.get("provider"),
+        model=defaults.get("model"),
+        review_model=defaults.get("review_model"),
+        base_url=defaults.get("base_url", DEFAULT_BASE_URL),
+        runtime=runtime,
+        effort=get_effort(iq or effort).name,
+        reasoning_effort=get_reasoning_profile(reasoning_effort if reasoning_effort != "auto" else defaults.get("reasoning_effort", "auto")).name,
+        network_access=defaults.get("network_access", "auto"),
+        storage_preference=defaults.get("storage_preference", "default"),
+        budget=budget,
+        audience=audience,
+    )
+    console.print("ATHENAEUM interactive. Use /help for commands, /exit to quit.", style="bold")
+    while True:
+        try:
+            line = Prompt.ask("[bold medium_purple2]thinktank[/]")
+        except (EOFError, KeyboardInterrupt):
+            console.print("leaving interactive mode")
+            return
+        result = handle_interactive_line(line, state)
+        if result.message:
+            console.print(result.message)
+        if result.action == "exit":
+            return
+        if result.action == "help":
+            continue
+        if result.action == "doctor":
+            doctor(config)
+            continue
+        if result.action == "select_effort":
+            state.effort = select_effort_slider(state.effort)
+            console.print(f"iq=effort:{state.effort}")
+            continue
+        if result.action == "save_config":
+            _write_interactive_config(Path(result.target or "thinktank.toml"), state)
+            continue
+        if result.action == "resume":
+            if not result.target:
+                console.print("usage: /resume <run-id>")
+                continue
+            _print_resume_state(result.target)
+            continue
+        if result.action == "plan" and result.question:
+            _handle_question(
+                result.question,
+                state.effort,
+                state.runtime,
+                state.budget,
+                True,
+                Path("report.md"),
