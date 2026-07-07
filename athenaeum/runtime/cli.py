@@ -159,3 +159,164 @@ class CliRuntime:
         stderr = "\n".join(stderr_lines)
         if process.returncode != 0:
             tail = (stderr or stdout).strip().splitlines()[-5:]
+            raise RuntimeExecutionError(f"{self.name} exited {process.returncode}: {' | '.join(tail)}")
+
+        payload = _extract_payload(stdout, result_file)
+        if final_payload is not None:
+            payload = final_payload
+        result = AgentResult.from_payload(payload, runtime=self.name, model=task.model)
+        try:
+            validate_json_schema_subset(result.content, task.output_schema)
+        except SchemaValidationError:
+            repaired = _repair_payload(result.content, task.output_schema, stdout)
+            result = AgentResult.from_payload(repaired, runtime=self.name, model=task.model)
+            validate_json_schema_subset(result.content, task.output_schema)
+        result.runtime_meta = RuntimeMeta(
+            runtime=self.name,
+            model=task.model,
+            command=command,
+            duration_seconds=round(time.perf_counter() - started, 3),
+            exit_code=process.returncode,
+        )
+        if accumulated.usd > 0 and result.cost.usd <= 0:
+            result.cost = accumulated
+        yield AgentEvent(kind="final", result=result)
+
+
+def definition_from_command(name: str, command: str, version_args: tuple[str, ...]) -> RuntimeDefinition:
+    parts = shlex.split(command)
+    if not parts:
+        raise ValueError(f"runtime {name!r} has an empty command")
+    return RuntimeDefinition(name=name, binary=parts[0], args=tuple(parts[1:]), version_args=version_args)
+
+
+async def _read_pipe_lines(stream: asyncio.StreamReader | None) -> list[str]:
+    if stream is None:
+        return []
+    lines: list[str] = []
+    while True:
+        line = await stream.readline()
+        if not line:
+            return lines
+        lines.append(line.decode("utf-8", errors="replace").rstrip("\r\n"))
+
+
+async def _read_stdout_line(process: asyncio.subprocess.Process, started: float, deadline_seconds: int, runtime_name: str) -> bytes:
+    if process.stdout is None:
+        return b""
+    remaining = _remaining_seconds(started, deadline_seconds)
+    if remaining <= 0:
+        await _kill_process(process)
+        raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline")
+    try:
+        return await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
+    except asyncio.TimeoutError as exc:
+        await _kill_process(process)
+        raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline") from exc
+
+
+async def _wait_for_process(process: asyncio.subprocess.Process, started: float, deadline_seconds: int, runtime_name: str) -> None:
+    remaining = _remaining_seconds(started, deadline_seconds)
+    if remaining <= 0:
+        await _kill_process(process)
+        raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline")
+    try:
+        await asyncio.wait_for(process.wait(), timeout=remaining)
+    except asyncio.TimeoutError as exc:
+        await _kill_process(process)
+        raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline") from exc
+
+
+async def _kill_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    with suppress(ProcessLookupError):
+        process.kill()
+    with suppress(ProcessLookupError):
+        await process.wait()
+
+
+def _remaining_seconds(started: float, deadline_seconds: int) -> float:
+    return max(float(deadline_seconds) - (time.perf_counter() - started), 0.0)
+
+
+def render_task_prompt(runtime_name: str, task: AgentTask, result_file: Path) -> str:
+    schema = json.dumps(task.output_schema or {"type": "object"}, indent=2, sort_keys=True)
+    payload = json.dumps(task.input_payload, indent=2, sort_keys=True)
+    return (
+        f"You are running as the ATHENAEUM {runtime_name} runtime.\n\n"
+        f"Task:\n{task.prompt}\n\n"
+        f"Input payload:\n{payload}\n\n"
+        f"Tool policy: {task.tool_policy}\nBudget ceiling for this task: ${task.budget_usd:.2f}\n\n"
+        "Return the final answer as JSON. Prefer writing that JSON to this file:\n"
+        f"{result_file}\n\n"
+        "The JSON content must satisfy this schema:\n"
+        f"{schema}\n"
+    )
+
+
+def _extract_payload(stdout: str, result_file: Path) -> Any:
+    if result_file.exists():
+        return json.loads(result_file.read_text(encoding="utf-8"))
+    for line in reversed(stdout.splitlines()):
+        parsed = _loads_json(line)
+        if parsed is None:
+            continue
+        if isinstance(parsed, dict) and parsed.get("type") in {"final", "result", "completed"}:
+            return parsed.get("result", parsed.get("content", parsed))
+        return parsed
+    stripped = stdout.strip()
+    if stripped:
+        return {"content": stripped}
+    raise RuntimeExecutionError("runtime completed without result JSON or stdout content")
+
+
+def _event_from_json_line(line: str, runtime: str, model: str | None) -> tuple[AgentEvent | None, Any | None]:
+    parsed = _loads_json(line)
+    if not isinstance(parsed, dict):
+        return None, None
+    event_type = parsed.get("type") or parsed.get("kind")
+    if event_type in {"progress", "status"}:
+        return AgentEvent(kind="progress", message=str(parsed.get("message") or parsed.get("status") or "progress"), raw=parsed), None
+    if event_type in {"cost", "cost_delta"}:
+        from .models import CostDelta
+
+        cost = CostDelta.model_validate(parsed.get("cost") or parsed.get("delta") or {})
+        return AgentEvent(kind="cost_delta", cost=cost, raw=parsed), None
+    if event_type in {"tool", "tool_call"}:
+        return AgentEvent(kind="tool_call", message=str(parsed.get("name") or parsed.get("message") or "tool_call"), raw=parsed), None
+    if event_type in {"final", "result", "completed"}:
+        payload = parsed.get("result", parsed.get("content", parsed))
+        return AgentEvent(kind="final", result=AgentResult.from_payload(payload, runtime=runtime, model=model), raw=parsed), payload
+    return None, None
+
+
+def _repair_payload(content: Any, schema: dict[str, Any], stdout: str) -> Any:
+    required = set(schema.get("required", []))
+    properties = schema.get("properties", {})
+    if "report_markdown" in required or "report_markdown" in properties:
+        if isinstance(content, str):
+            return {"report_markdown": content, "title": "CLI Runtime Output", "question": "runtime task", "summary": "Repaired plain-text CLI output."}
+        if isinstance(content, dict):
+            repaired = dict(content)
+            repaired.setdefault("report_markdown", repaired.get("text") or repaired.get("message") or stdout.strip() or "")
+            repaired.setdefault("title", "CLI Runtime Output")
+            repaired.setdefault("question", "runtime task")
+            repaired.setdefault("summary", "Repaired CLI output to match the report schema.")
+            return repaired
+    return content
+
+
+def _loads_json(value: str) -> Any | None:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def _first_line(value: str) -> str | None:
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
