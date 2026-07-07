@@ -270,3 +270,139 @@ def test_sanity_rejects_missing_required_predecessor_input() -> None:
         budget_share=1.0,
         estimated_tokens=100,
         estimated_cost=0.01,
+        detail="target",
+        inputs=(PlanInput("research", "ResearchOutput"), PlanInput("debate", "DebateOutput")),
+    )
+    plan = ExecutionPlan(
+        question="Should we ship?",
+        effort=get_effort("low"),
+        runtime="minimal",
+        budget=1.0,
+        nodes=(target,),
+        edges=(("target", "emit"),),
+    )
+
+    report = SanityChecker().check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S4" and "research" in finding.message for finding in report.errors)
+    assert any(finding.rule == "S4" and "debate" in finding.message for finding in report.errors)
+
+
+def test_sanity_rejects_unknown_schema_name() -> None:
+    node = PlanNode(
+        name="source",
+        kind="writer",
+        runtime="minimal",
+        capability="reasoner",
+        output_schema="BogusOutput",
+        budget_share=1.0,
+        estimated_tokens=100,
+        estimated_cost=0.01,
+        detail="source",
+    )
+    plan = ExecutionPlan(
+        question="Should we ship?",
+        effort=get_effort("low"),
+        runtime="minimal",
+        budget=1.0,
+        nodes=(node,),
+        edges=(("source", "emit"),),
+    )
+
+    report = SanityChecker().check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S4" and "BogusOutput" in finding.message for finding in report.errors)
+
+
+def test_sanity_s5_rejects_provider_priced_plan_over_tiny_budget() -> None:
+    plan = _single_node_budget_plan(
+        capability="reasoner",
+        budget=0.01,
+        estimated_tokens=50_000,
+        estimated_cost=0.001,
+    )
+    gateway = _gateway_with_prices(
+        "reasoner",
+        "priced/reasoner",
+        prices={"reasoner": {"input": 2.0, "output": 2.0}},
+    )
+
+    assert plan.estimated_cost < plan.budget
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert not report.ok
+    assert any(finding.rule == "S5" and finding.severity == "error" for finding in report.errors)
+
+
+def test_sanity_s5_allows_zero_priced_routes_with_tiny_budget() -> None:
+    plan = _single_node_budget_plan(
+        capability="reasoner",
+        budget=0.01,
+        estimated_tokens=50_000,
+        estimated_cost=0.001,
+    )
+    gateway = _gateway_with_prices(
+        "reasoner",
+        "stub/reasoner",
+        prices={"*": {"input": 0.0, "output": 0.0}},
+        kind="stub",
+    )
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert report.ok
+    assert not any(finding.rule == "S5" for finding in report.errors)
+
+
+def test_sanity_s5_allows_provider_priced_plan_with_sufficient_budget() -> None:
+    plan = _single_node_budget_plan(
+        capability="reasoner",
+        budget=500.0,
+        estimated_tokens=50_000,
+        estimated_cost=0.001,
+    )
+    gateway = _gateway_with_prices(
+        "reasoner",
+        "priced/reasoner",
+        prices={"reasoner": {"input": 2.0, "output": 2.0}},
+    )
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert report.ok
+    assert not any(finding.rule == "S5" for finding in report.errors)
+
+
+def test_sanity_s5_warns_for_unpriced_non_stub_routes() -> None:
+    plan = _single_node_budget_plan(
+        capability="reasoner",
+        budget=1.0,
+        estimated_tokens=50_000,
+        estimated_cost=0.001,
+    )
+    gateway = _gateway_with_prices("reasoner", "priced/reasoner", prices={})
+
+    report = SanityChecker(gateway).check(plan)
+
+    assert report.ok
+    assert any(finding.rule == "S5" and finding.severity == "warning" and "no configured prices" in finding.message for finding in report.warnings)
+
+
+def test_json_dry_run_estimated_costs_use_provider_prices_when_configured() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        Path("thinktank.toml").write_text(
+            """
+[routes]
+reasoner = ["priced/reasoner"]
+fast = ["priced/fast"]
+long-context = ["priced/long"]
+cheap-judge = ["priced/judge"]
+
+[providers.priced]
+kind = "openai-compatible"
+models = ["reasoner", "fast", "long", "judge"]
+
