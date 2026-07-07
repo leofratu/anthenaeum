@@ -655,3 +655,112 @@ def daemon_run(
 @daemon_app.command("status")
 def daemon_status() -> None:
     wakes = SessionStore().due_wakes()
+    console.print(f"queued wakes: {len(wakes)}")
+
+
+@daemon_app.command("install")
+def daemon_install() -> None:
+    console.print("launchd/systemd installation is scaffolded; run `thinktank daemon run --once` for local processing")
+
+
+def _consume_due_wakes() -> int:
+    store = SessionStore()
+    wakes = store.due_wakes()
+    for wake in wakes:
+        store.consume_wake(str(wake["id"]))
+    return len(wakes)
+
+
+def _write_output(path: Path, markdown: str, data: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown, encoding="utf-8")
+    json_path = path.with_suffix(path.suffix + ".json") if path.suffix else Path(f"{path}.json")
+    json_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    console.print(f"wrote {path}")
+    console.print(f"schema JSON {json_path}")
+
+
+def _emit_json(data: object) -> None:
+    typer.echo(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _primary_config_text(
+    provider: str,
+    model: str,
+    review_model: str,
+    reasoning: str,
+    base_url: str,
+    network: str,
+    disable_storage: bool,
+    goals: bool,
+) -> str:
+    return render_primary_config(provider, model, review_model, reasoning, base_url, network, disable_storage, goals)
+
+
+def _write_interactive_config(path: Path, state: InteractiveState) -> None:
+    provider = state.provider or "OpenAI"
+    model = state.model or "gpt-5.5"
+    review_model = state.review_model or model
+    reasoning = _reasoning_for_interactive_config(state)
+    network = _config_network_value(state.network_access)
+    disable_storage = state.storage_preference.lower() in {
+        "disabled",
+        "disable",
+        "no-response-storage",
+        "no_storage",
+        "off",
+        "private",
+        "true",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        _primary_config_text(provider, model, review_model, reasoning, state.base_url, network, disable_storage, True) + "\n",
+        encoding="utf-8",
+    )
+    console.print(f"wrote {path}")
+
+
+def _reasoning_for_interactive_config(state: InteractiveState) -> str:
+    if state.reasoning_effort != "auto":
+        return get_reasoning_profile(state.reasoning_effort).name
+    if state.effort in {"vhigh", "max", "ultra"}:
+        return "xhigh"
+    if state.effort == "medium":
+        return "medium"
+    if state.effort == "low":
+        return "low"
+    return "high"
+
+
+def _config_network_value(network_access: str) -> str:
+    if network_access == "disabled":
+        return "disabled"
+    return "enabled" if network_access == "enabled" else "enabled"
+
+
+def _prompt_bool(label: str, default: bool) -> bool:
+    default_text = "true" if default else "false"
+    return Prompt.ask(label, default=default_text).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _run_id(question: str, seed: int | None) -> str:
+    if seed is None:
+        return new_run_id()
+    return hashlib.sha256(f"{seed}|{question}".encode("utf-8")).hexdigest()[:8]
+
+
+def _mode_artifacts(subject: str, mode: str, seed: int | None) -> RunArtifacts:
+    artifacts = RunArtifacts(_run_id(f"{mode}|{subject}", seed))
+    artifacts.prepare()
+    return artifacts
+
+
+def _set_session_status(session_id: str, status: str) -> None:
+    try:
+        SessionStore().set_status(session_id, status)
+    except KeyError as exc:
+        raise typer.BadParameter(f"unknown session {session_id!r}")
+    console.print(f"{session_id} {status}")
+
+
+def _print_resume_state(run_id: str) -> None:
