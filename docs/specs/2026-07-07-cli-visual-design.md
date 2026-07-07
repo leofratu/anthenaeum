@@ -101,3 +101,105 @@ queued `·` (grey) → running <spinner> (accent) → done `✓` (green) / warn 
  · revise                                      queued
  ─────────────────────────────────────────────────────────────────────────
  $1.24 / $5.00 ▐████████░░░░░░░░░░░░▌ 24%          elapsed 3:41 · est 9m
+```
+
+Budget bar fills in the effort accent; flips to `orange3` at 80%, `red` at 95%
+(watchdog degradation events print one dim line under the bar, never a popup).
+
+### 2.3 Verdict ticker (verify + court phases)
+
+Claims/findings stream as single dim lines under their node, max 3 visible,
+oldest fades out (rendered by truncation, cheap):
+
+```
+ ▾ court
+ │   argument   ⠸ auditing 12 chains
+ │     └ ✗ blocker: conclusion §4 rests on contested growth figure
+ │   audience   ✓ 2 major · CFO reader loses thread at §3
+ │   thinker    ⠼ einstein: running limit-case probe on §2 model
+```
+
+### 2.4 Completion card
+
+```
+ ─────────────────────────────────────────────────────────────────────────
+ ✓ Report ready                                    report.md · 2,840 words
+   claims: 47 verified · 3 contested · 2 unverified (marked inline)
+   court:  0 blockers · 2 major addressed · score 8.1 → 9.2 over 3 revisions
+   cost:   $3.87 of $5.00 · 11:32 · artifacts in runs/7f3a-9c/
+```
+
+### 2.5 Dry-run and doctor
+
+`--dry-run`: renders the same tree fully expanded, all nodes `·`, with a per-node
+table column set: `runtime · resolved model · est tokens · est $`. Total row bold.
+`doctor`: checklist rows, `✓`/`✗` + one fix-it line per failure:
+
+```
+ ✓ anthropic key        live (14ms)
+ ✗ codex cli            not found — brew install codex, or --runtime api
+ ✓ gemini cli           v0.9.4
+```
+
+## 3. Animations — one per effort tier
+
+The working-state spinner is the run's visual signature and scales with effort:
+higher effort *visibly deliberates harder*. All are frame lists cycled by `rich`;
+frame budgets in §4. Each animation uses only its tier's accent color + greys, so a
+glance at any running node tells you the effort level.
+
+| Tier | Name | Frames (cycle) | Feel |
+|---|---|---|---|
+| low | **dot** | `.  `→`.. `→`...` | minimal, 3 fps |
+| medium | **braille** | `⠋⠙⠸⠴⠦⠇` | standard worker, 8 fps |
+| high | **pulse** | `▁▂▃▅▃▂` rendered as a 5-char wave sliding under the node label | steady heartbeat, 10 fps |
+| vhigh | **council** | `◐◓◑◒` × N glyphs, one per live agent, each phase-offset; converged agents freeze to `●` | you can SEE the panel deliberating and converging, 12 fps |
+| max | **orbit** | 7-char field `∙ ∘ ○ ◉ ○ ∘ ∙` with the bright core `◉` sweeping left↔right (Larson scanner); on each loop-iteration completion, a 300ms full-width shimmer in `orange3` | relentless sweep; iteration shimmer marks real progress, 15 fps |
+| ultra | **redteam** | alternating `◇◆◇` / `◆◇◆` plus replication ticks on completed checks | adversarial exhaustive pass, 18 fps cap |
+
+Phase-transition flourishes (all ≤400ms, all skippable):
+
+- node completes: spinner collapses into `✓` with a single `▸✓` slide-in frame.
+- debate convergence: the two debater lines visually merge — one 2-frame `╲╱` join.
+- verify verdict lands: claim line flashes its verdict color once (green/yellow/red).
+- max-tier run start: the header `◈` plays a 5-frame bloom `·∘○◉◈` — once.
+
+`--no-anim` (or `NO_COLOR`/non-TTY/CI detection) replaces ALL animations with
+static state glyphs and disables Live refresh (plain line-per-event logging).
+
+## 4. Performance budget (hard requirements)
+
+The user explicitly requires very high perf at `vhigh`/`max` — exactly when the
+most agents stream concurrently. Rules:
+
+- **UI never blocks orchestration.** Rendering runs on its own thread consuming a
+  bounded `deque(maxlen=1024)` of `UiEvent`s; orchestrator writes are non-blocking
+  (drop-oldest on overflow — the tree is state-rendered, so dropped deltas cannot
+  corrupt it, next render reads current state).
+- **Frame cap by tier:** refresh ≤ 15 fps even at max; `rich.Live(refresh_per_second)`
+  set per tier (3/8/10/12/15). Never render on every event — render on tick.
+- **Render cost ceiling:** one full tree render ≤ 8ms at 100 visible nodes on a
+  reference M-class laptop; measured in CI with a synthetic 200-agent run. If a
+  render exceeds 8ms twice consecutively, the renderer auto-collapses done subtrees
+  (keeps last 2) and halves fps — logged, reversible with `R` key.
+- **O(visible) rendering:** collapsed/done subtrees render from a cached string;
+  only running nodes re-render per tick.
+- **Memory:** ticker lines and transcripts stream to the journal, not to the UI
+  state; UI holds at most the visible window (no unbounded transcript buffers).
+- **Degradation ladder (UI):** >120 live agents → council/orbit animations swap to
+  braille automatically; >4 dropped-frame warnings → `--no-anim` mode with a notice.
+- Startup to first paint < 150ms (defer provider probes until after header paints).
+
+## 5. Input & keys (live view)
+
+`←/→` adjust effort (only at the pre-run slider) · `p` pause session · `q` graceful
+stop (checkpoint + resume hint) · `v` toggle verdict ticker · `c` collapse done ·
+`R` restore auto-degraded rendering · `?` key help footer toggle.
+
+## 6. Theming
+
+Default theme "midnight": background-agnostic (never sets bg color), accents per
+tier (§1.2), greys for chrome. `thinktank.toml [ui]` allows `theme = "mono"`
+(no color, glyphs only) and `accent_override`. All glyphs have ASCII fallbacks
+(`✓→ok`, `⚑→!`, `◈→#`, spinners→`|/-\`) selected automatically when the terminal
+lacks UTF-8.
