@@ -153,3 +153,158 @@ class PanelOpinion(BaseModel):
 
 
 class ReviewerCourtOutput(BaseModel):
+    kind: Literal["court"] = "court"
+    argmap: ArgumentMap
+    panels: list[PanelOpinion]
+    opinion: "CourtOpinion"
+
+
+class RevisionIteration(BaseModel):
+    index: int
+    score_before: float = Field(ge=0.0, le=10.0)
+    score_after: float = Field(ge=0.0, le=10.0)
+    actions: list[str]
+
+
+class ReviseOutput(BaseModel):
+    kind: Literal["revise"] = "revise"
+    iterations: list[RevisionIteration]
+    final_report: "ReportOutput"
+    plateau_reason: str | None = None
+
+
+class Verdict(BaseModel):
+    reviewer: str
+    severity: Literal["blocker", "major", "minor", "nit"]
+    section_anchor: str
+    finding: str
+    evidence: str
+    suggested_fix: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class CourtOpinion(BaseModel):
+    score_before: float = Field(default=0.0, ge=0.0, le=10.0)
+    score_after: float = Field(default=0.0, ge=0.0, le=10.0)
+    blockers: int = 0
+    major_findings: int = 0
+    verdicts: list[Verdict] = Field(default_factory=list)
+
+
+class ReportOutput(BaseModel):
+    kind: Literal["report"] = "report"
+    title: str
+    question: str
+    summary: str
+    report_markdown: str
+    claims: list[ClaimRef] = Field(default_factory=list)
+    citations: list[CitationRef] = Field(default_factory=list)
+    court: CourtOpinion | None = None
+    run_id: str | None = None
+    generated_at: str = Field(default_factory=utc_now)
+
+
+class EvolveCandidate(BaseModel):
+    id: str
+    thesis: str
+    axes: dict[str, str] = Field(default_factory=dict)
+    fitness: float = Field(default=0.0, ge=0.0, le=10.0)
+    strongest_objection: str
+    repair: str
+
+
+class EvolveOutput(BaseModel):
+    kind: Literal["evolve"] = "evolve"
+    prompt: str
+    generations: int = Field(ge=1)
+    axes: list[str]
+    archive: list[EvolveCandidate]
+    report_markdown: str
+    generated_at: str = Field(default_factory=utc_now)
+
+
+class ReviewOutput(BaseModel):
+    kind: Literal["review"] = "review"
+    source_path: str
+    audience: str | None = None
+    court: CourtOpinion
+    report_markdown: str
+    generated_at: str = Field(default_factory=utc_now)
+
+
+class ScienceOutput(BaseModel):
+    kind: Literal["science"] = "science"
+    hypothesis: str
+    sandbox: str
+    max_experiments: int = Field(ge=1)
+    stage: Literal["planned", "blocked", "complete"] = "planned"
+    methods_gate: list[Verdict] = Field(default_factory=list)
+    report_markdown: str
+    generated_at: str = Field(default_factory=utc_now)
+
+
+class ExperimentPlan(BaseModel):
+    id: str
+    hypothesis: str
+    method: str
+    sandbox: str
+    deterministic_seed: int
+
+
+class ExperimentResult(BaseModel):
+    id: str
+    plan_id: str
+    status: Literal["blocked", "simulated", "complete"]
+    observations: dict[str, float | str]
+    artifact_refs: list[ArtifactRef] = Field(default_factory=list)
+
+
+class ScienceRunOutput(BaseModel):
+    kind: Literal["science_run"] = "science_run"
+    plan: ExperimentPlan
+    results: list[ExperimentResult]
+    writeup: ScienceOutput
+
+
+class SessionRecord(BaseModel):
+    id: str
+    question: str
+    status: Literal["running", "paused", "stopped", "complete"] = "running"
+    daily_budget: float = Field(ge=0.0)
+    duration: str
+    created_at: str = Field(default_factory=utc_now)
+    last_wake_at: str | None = None
+
+
+class CommandStatus(BaseModel):
+    ok: bool
+    message: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+OUTPUT_MODELS: dict[str, type[BaseModel]] = {
+    "research": ResearchOutput,
+    "debate": DebateOutput,
+    "verify": VerifyOutput,
+    "court": ReviewerCourtOutput,
+    "revise": ReviseOutput,
+    "report": ReportOutput,
+    "evolve": EvolveOutput,
+    "review": ReviewOutput,
+    "science": ScienceOutput,
+    "science_run": ScienceRunOutput,
+    "session": SessionRecord,
+    "status": CommandStatus,
+}
+
+
+for _model in (PanelOpinion, ReviewerCourtOutput, ReviseOutput):
+    _model.model_rebuild()
+
+
+def output_schema(name: str) -> dict[str, Any]:
+    try:
+        return OUTPUT_MODELS[name].model_json_schema()
+    except KeyError as exc:
+        valid = ", ".join(sorted(OUTPUT_MODELS))
+        raise ValueError(f"unknown output schema {name!r}; expected one of: {valid}") from exc
