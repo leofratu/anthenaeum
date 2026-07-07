@@ -52,3 +52,56 @@ thinktank providers list
 thinktank providers init --out thinktank.toml
 thinktank resume <run-id>
 thinktank resume <run-id> --continue
+thinktank watch "Track this topic" --daily-budget 3 --for 14d
+thinktank daemon run --once
+```
+
+Run one external CLI runtime directly through ATHENAEUM's JSON result contract:
+
+```bash
+thinktank runtimes run opencode "Summarize this repository" --out report.md
+```
+
+Runtime commands can be overridden in `thinktank.toml` when a local CLI uses different
+flags:
+
+```toml
+[runtimes.agy]
+command = "agy run --json --workspace {workspace} {prompt_file}"
+version_args = ["--version"]
+```
+
+Implemented deterministic local surfaces: `thinktank evolve` (idea search),
+`thinktank review draft.md` (reviewer court only), `thinktank science` (sandboxed
+experiment plan), `thinktank watch`, `thinktank sessions`, `thinktank daemon`,
+`thinktank personas`, `thinktank workflows`, `thinktank schemas`, `thinktank providers`,
+`thinktank reasoning`, `thinktank interactive`, `thinktank resume`, `thinktank --dry-run`,
+`thinktank --json`, and `thinktank doctor`.
+
+IQ/effort is the main quality control:
+
+```bash
+thinktank --iq 140 --dry-run "Should we ship?"
+thinktank --effort iq-max --runtime codex "Review this repository"
+thinktank interactive               # use /setup, /iq, /runtime, /save-config, /plan, /run
+```
+
+Advanced provider reasoning remains available with `--reasoning-effort` or
+interactive `/help advanced`, but normal setup should use the IQ/effort slider.
+
+## Documents
+
+- [`docs/specs/2026-07-07-think-tank-spec.md`](docs/specs/2026-07-07-think-tank-spec.md) — full technical specification
+- [`docs/specs/2026-07-07-research-citations.md`](docs/specs/2026-07-07-research-citations.md) — annotated bibliography of the papers/systems the design is grounded in
+
+## Key ideas
+
+- **Deterministic orchestration, compiled workflows** — models fill slots in a
+  sanity-checked graph; they never improvise the control flow.
+- **Frontier loops as engine primitives** — sparse-topology debate, Reflexion memory,
+  MAP-Elites evolution over *arguments*, refutation-framed claim verification,
+  STORM-style research, budget-aware test-time scaling.
+- **Reviewer Court** — Toulmin argument auditing, audience modeling, hedging
+  calibration, thinker-emulation panels (outcome-blind), domain-expert review.
+- **Provider-agnostic ModelGateway** — capability routing with fallbacks across
+  Anthropic / OpenAI / Google / OpenRouter / local, plus judge–generator separation.
