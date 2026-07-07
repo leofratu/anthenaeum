@@ -983,3 +983,112 @@ def _handle_question(
             "run_id": run_id,
             "artifact_root": str(artifacts.artifacts),
         },
+        output_schema=_report_schema(),
+        budget_usd=ceiling,
+        reasoning_effort=reasoning_profile.name,
+        model=defaults.get("route_model"),
+    )
+    try:
+        if json_output:
+            if runtime.name == "minimal":
+                context = RunContext(question, run_id, effort.name, mode, audience, seed or 0, artifacts.artifacts)
+                result = result_from_report(LocalConductor(plan, artifacts, context).run().report)
+            else:
+                result = asyncio.run(_run_selected_runtime(runtime, task, Workspace(artifacts.workspace), None))
+        else:
+            with LiveRunRenderer(plan, no_anim=no_anim) as renderer:
+                if runtime.name == "minimal":
+                    context = RunContext(question, run_id, effort.name, mode, audience, seed or 0, artifacts.artifacts)
+                    result = result_from_report(LocalConductor(plan, artifacts, context, renderer.handle_event).run().report)
+                else:
+                    result = asyncio.run(_run_selected_runtime(runtime, task, Workspace(artifacts.workspace), renderer.handle_event))
+    except (RuntimeUnavailable, RuntimeExecutionError, SchemaValidationError) as exc:
+        artifacts.append_journal("run_failed", {"error": str(exc)})
+        typer.echo(f"runtime failed: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    report_text = _report_text(result.content)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report_text, encoding="utf-8")
+    output_data = result.content if isinstance(result.content, dict) else {"report_markdown": report_text}
+    output_data.setdefault("run_id", run_id)
+    output_data.setdefault("planner", planner_decision.to_dict())
+    output_data.setdefault("claims", [claim.model_dump(mode="json") for claim in result.claims])
+    output_data.setdefault("citations", [citation.model_dump(mode="json") for citation in result.citations])
+    artifacts.write_output(output_data)
+    claim_ledger = ClaimLedger(artifacts.root / "claims.events.jsonl")
+    for claim in result.claims:
+        claim_ledger.append(claim, "revise", "final report claim status")
+    claim_ledger.write_current(artifacts.root / "claims.current.json")
+    citation_db = CitationDB()
+    for citation in result.citations:
+        citation_db.link_run(run_id, citation, node_id="research")
+    artifacts.write_ledger(runtime.name, ceiling, result.cost.usd)
+    artifacts.append_journal("run_complete", {"out": str(out), "claims": len(result.claims), "citations": len(result.citations)})
+    artifacts.write_manifest()
+    if json_output:
+        _emit_json({"output": output_data, "run_dir": str(artifacts.root)})
+    else:
+        render_completion(str(out), result, report_text, str(artifacts.root))
+    return report_text
+
+
+async def _run_selected_runtime(runtime, task: AgentTask, workspace: Workspace | None = None, on_event=None):
+    health = runtime.health()
+    if not health.available:
+        raise RuntimeUnavailable(health.fix or f"{runtime.name} is unavailable")
+    if workspace is not None:
+        return await _run_in_workspace(runtime, task, workspace, on_event)
+    with tempfile.TemporaryDirectory(prefix="athenaeum-") as temp:
+        return await _run_in_workspace(runtime, task, Workspace(Path(temp)), on_event)
+
+
+async def _run_in_workspace(runtime, task: AgentTask, workspace: Workspace, on_event=None):
+    final = None
+    accumulated = CostDelta()
+    async for event in runtime.spawn(task, workspace):
+        if on_event is not None:
+            on_event(event)
+        if event.kind == "cost_delta" and event.cost is not None:
+            accumulated = CostDelta(
+                tokens_in=accumulated.tokens_in + event.cost.tokens_in,
+                tokens_out=accumulated.tokens_out + event.cost.tokens_out,
+                usd=round(accumulated.usd + event.cost.usd, 6),
+            )
+            if task.budget_usd > 0 and accumulated.usd > task.budget_usd:
+                raise RuntimeExecutionError(f"{runtime.name} exceeded task budget ${task.budget_usd:.2f} with reported cost ${accumulated.usd:.2f}")
+        if event.kind == "final":
+            final = event.result
+    if final is None:
+        raise RuntimeExecutionError(f"{runtime.name} did not emit a final event")
+    if accumulated.usd > 0 and final.cost.usd <= 0:
+        final.cost = accumulated
+    return final
+
+
+def _question_prompt(question: str, effort: str) -> str:
+    return (
+        "Produce a concise ATHENAEUM research report for the question below. "
+        "Include citations or clearly mark claims as unverified when sources are absent.\n\n"
+        f"Question: {question}\nEffort: {effort}\n"
+    )
+
+
+def _report_schema() -> dict[str, object]:
+    return output_schema("report")
+
+
+def _report_text(content) -> str:
+    if isinstance(content, dict) and isinstance(content.get("report_markdown"), str):
+        return content["report_markdown"]
+    return str(content)
+
+
+def _select_requested_runtime(runtime_name: str, registry: RuntimeRegistry, gateway: ModelGateway):
+    if runtime_name.lower() == "api":
+        return ApiRuntime(gateway)
+    if runtime_name.lower() != "auto":
+        return registry.get(runtime_name)
+    api_runtime = ApiRuntime(gateway)
+    if api_runtime.health().available:
+        return api_runtime
+    return registry.get("minimal")
