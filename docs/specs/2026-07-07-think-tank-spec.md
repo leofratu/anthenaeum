@@ -392,3 +392,134 @@ templates in `.thinktank/workflows/`). Templates declare nodes, edges, loop bloc
 capabilities, runtimes, schemas, and budget shares. The compiler resolves them into a
 frozen `ExecutionGraph` — after compilation nothing about the shape can change at
 runtime; only node *contents* are model-generated.
+
+```yaml
+# excerpt: default "auto" workflow
+nodes:
+  research:   {loop: research,  capability: reasoner, runtime: api,  budget_share: 0.35}
+  debate:     {loop: debate,    capability: reasoner, diversity: provider, budget_share: 0.20}
+  draft:      {kind: writer,    capability: long-context, scale: {strategy: best_of_n, n: 3, judge: cheap-judge}}
+  verify:     {loop: verify,    capability: fast, k_skeptics: 3, budget_share: 0.15}
+  court:      {kind: reviewer_court, panels: [argument, audience, sentiment, thinker, domain]}
+  revise:     {loop: reflexion, scope: intra_run, max_iterations: 4}
+edges: [research→debate, debate→draft, draft→verify, verify→court, court→revise, revise→emit]
+```
+
+### 6.2 Static sanity rules (run always, before any model call)
+
+| # | Rule | Failure action |
+|---|---|---|
+| S1 | Graph is a DAG outside declared loop blocks | abort |
+| S2 | Every capability resolves to ≥1 configured provider with a live key | abort, name the missing env var |
+| S3 | Every CLI runtime passes `health()` (binary, version, auth) | rewire to ApiRuntime + warn, or abort if `requires: cli` |
+| S4 | Output schema of node A is assignable to input schema of successor B | abort with the field-level diff |
+| S5 | Estimated cost (per-node token priors × route prices) ≤ budget ceiling | abort with per-node estimate table; suggest `--budget` |
+| S6 | Judge nodes are model-separated from their generators (§3.2) | abort unless `allow_self_judge` |
+| S7 | Every loop has `max_iterations` AND a convergence predicate | abort |
+| S8 | Science mode: sandbox path exists, is empty-or-owned, network policy set | abort |
+| S9 | Diversity pinning satisfiable: `vhigh`/`max`/`ultra` need ≥2 available non-stub providers | hard error for high tiers; warning otherwise |
+
+### 6.3 Dry-run & doctor
+
+- `thinktank --dry-run "q"` — executes the compiled graph against a `StubRuntime`
+  that returns schema-valid canned payloads: prints the node table (runtime, resolved
+  model, est. tokens, est. cost), loop bounds, and total projected cost. Exit code 0
+  ⇔ the real run would start.
+- `thinktank doctor` — environment probe: provider keys (live 1-token ping), CLI
+  binaries + versions (`claude --version`, `codex --version`, `gemini --version`),
+  disk space, config parse. Prints a fix-it line per failure.
+
+### 6.4 Runtime watchdogs
+
+Stall detection (no `AgentEvent` for `deadline_soft` → nudge; `deadline_hard` → kill
++ retry on fallback), budget-burn projection every 30s (projected overrun → degrade
+scaling per §5.7 → if still over, checkpoint and halt with `resume` instructions),
+debate degeneracy guard (§5.1), and a schema-violation circuit breaker (3 consecutive
+`SchemaError`s from one node → swap model, then halt that branch).
+
+## 7. Reviewer Court
+
+Structure: five reviewer classes run in parallel on the draft; a **Chief Justice**
+node fuses verdicts into a prioritized, deduplicated `CourtOpinion` that drives the
+reflexion revision loop. All verdicts are structured:
+
+```python
+class Verdict(BaseModel):
+    reviewer: str; severity: Literal["blocker","major","minor","nit"]
+    section_anchor: str; finding: str; evidence: str
+    suggested_fix: str | None; confidence: float
+```
+
+### 7.1 Argument Auditor
+
+Parses the draft into **Toulmin structures** — claim / grounds / warrant / backing /
+qualifier / rebuttal — producing an argument map (`argmap.json`). Then: (a) applies
+Walton-style **critical questions** per detected argument scheme (expert opinion →
+"is the cited expert actually in this domain?"; consequences → "is the causal chain
+warranted?"); (b) runs fallacy detection against a 24-item taxonomy; (c) scores each
+warrant's strength given the claim ledger's verification statuses — an argument built
+on `contested` grounds cannot score above "weak". Blocker condition: any load-bearing
+conclusion whose every supporting chain is weak.
+
+### 7.2 Audience Modeler
+
+Builds an explicit `ReaderProfile{expertise, priors, goals, constraints, likely_objections[]}`
+from `--audience` (free text, e.g. "CFO of a mid-size EU bank") or infers a default
+educated-generalist. Then simulates a section-by-section read: where does this reader
+disengage, get lost, or object? Flags: jargon above the reader's level, buried
+lede for this reader's goals, unaddressed likely objections. **Ethical rail:** the
+modeler optimizes comprehension and objection-coverage; the compiler strips any
+persuasion-targeting instructions (no "exploit their fear of X" style directives are
+representable in its schema — findings must cite a comprehension or completeness gap).
+
+### 7.3 Sentiment & Tone Analyst
+
+Sentence-level stance/tone trajectory over the document; flags (a) tone drift
+(analytical → advocacy without evidence change), (b) **hedging miscalibration** — the
+signature check: language confidence must track ledger status. "X will happen" over a
+`contested` claim is a major finding; triple-hedged prose over `verified` claims is a
+minor one. Implemented as `fast`-capability extraction + deterministic comparison
+against the claim ledger — mostly *code*, not vibes.
+
+### 7.4 Thinker Emulation Panel
+
+Persona reviewers instantiated from **PersonaCards** — versioned YAML files encoding a
+thinker's *documented reasoning heuristics*, not just a name:
+
+```yaml
+id: einstein
+heuristics:
+  - "Run the thought experiment: take the core claim to a limiting case; does it still hold?"
+  - "Hunt for the hidden asymmetry/invariance the argument assumes."
+  - "As simple as possible, but no simpler — flag both overcomplication and false simplicity."
+review_lens: "foundational assumptions and limit behavior"
+domains_strong: [physics, methodology, modeling]
+domains_weak_warn: [modern ML empirics, economics]
+```
+
+Shipped cards: `einstein`, `feynman` (first-principles reconstruction), `kahneman`
+(bias audit), `ostrom` (institutional incentives), `taleb` (tail risk, fragility),
+`popper` (falsifiability). `--panel einstein,ostrom` selects; users add cards in
+`.thinktank/personas/`.
+
+**Honesty clause (goes in the spec and the code):** evidence that persona prompting
+*per se* improves reasoning is mixed (e.g. arXiv:2311.10054 finds no systematic gain).
+ATHENAEUM therefore uses personas strictly as **critique-diversity generators**: their
+findings enter the Chief Justice fusion *outcome-blind* (stripped of persona identity)
+and are weighted by the finding's evidence, never by the persona's prestige. A persona
+finding outside the card's `domains_strong` is auto-downweighted.
+
+### 7.5 Domain Expert Reviewer
+
+Topic classifier maps the question onto a domain taxonomy (econ, law/policy, ML, bio,
+security, …); loads the matching **domain checklist** (shipped, extensible) — e.g.
+ML: "are benchmarks contaminated? is the baseline tuned as hard as the method?" — and
+grants the reviewer tool access to spot-verify domain facts. Runs on `reasoner`
+capability with provider diversity from the drafting model.
+
+### 7.6 Chief Justice fusion
+
+Dedup (embedding-cluster findings, keep the best-evidenced exemplar per cluster) →
+severity-rank → cross-examine: for each `blocker`/`major`, a `cheap-judge` PoLL panel
+(3 small models, order-swapped pairwise where applicable) votes on validity, killing
+hallucinated critiques. Output `CourtOpinion` caps the revision loop's work queue at
