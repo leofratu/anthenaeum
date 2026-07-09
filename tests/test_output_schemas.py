@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from athenaeum.runtime.models import SchemaValidationError, validate_json_schema_subset
 from athenaeum.runtime.minimal import build_report_output
+from athenaeum.runtime.models import SchemaValidationError, validate_json_schema_subset
 from athenaeum.schemas import ReportOutput, output_schema
 
 

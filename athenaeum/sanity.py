@@ -60,13 +60,15 @@ class SanityChecker:
         return report
 
     def _check_dag(self, plan: ExecutionPlan, report: SanityReport) -> None:
-        node_names = {node.name for node in plan.nodes} | {"emit"}
-        if len(node_names) != len({node.name for node in plan.nodes}) + 1:
+        names = [node.name for node in plan.nodes]
+        unique_names = set(names)
+        if len(names) != len(unique_names):
             report.add("S1", "error", "duplicate node id in workflow")
+        node_names = unique_names | {"emit"}
         for source, target in plan.edges:
             if source not in node_names or target not in node_names:
                 report.add("S1", "error", f"edge {source}->{target} references an unknown node")
-        graph = {node: [] for node in node_names}
+        graph: dict[str, list[str]] = {node: [] for node in node_names}
         for source, target in plan.edges:
             if source in graph and target in graph:
                 graph[source].append(target)

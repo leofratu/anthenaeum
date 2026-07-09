@@ -27,7 +27,7 @@ class BudgetLedger:
         self.degradations: list[str] = []
 
     @classmethod
-    def open(cls, path: Path, budget_usd: float) -> "BudgetLedger":
+    def open(cls, path: Path, budget_usd: float) -> BudgetLedger:
         ledger = cls(path, budget_usd)
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))

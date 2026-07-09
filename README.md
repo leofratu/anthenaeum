@@ -8,7 +8,7 @@
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">
   <img alt="CLI Typer" src="https://img.shields.io/badge/CLI-Typer-2f6fdd">
   <img alt="UI Rich" src="https://img.shields.io/badge/UI-Rich-7b61ff">
-  <img alt="Tests 143" src="https://img.shields.io/badge/tests-143%20passing-brightgreen">
+  <img alt="Tests 190" src="https://img.shields.io/badge/tests-190%20passing-brightgreen">
   <img alt="Status prototype" src="https://img.shields.io/badge/status-active%20prototype-orange">
 </p>
 
@@ -45,7 +45,7 @@ Question
 | Prototype | Broad local engine and working CLI runtime spine. |
 | Offline mode | `minimal` runtime is deterministic and works without API keys. |
 | Live providers | Require API keys and `thinktank.toml`. |
-| Test suite | `143` tests currently pass locally. |
+| Test suite | `190` tests currently pass locally. |
 | Python | Requires Python `3.12+`. |
 
 ## Workflow Shape

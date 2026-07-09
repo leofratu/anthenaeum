@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
 from athenaeum.loops import DeterministicLoopEngine
 from athenaeum.loops.context import RunContext

@@ -3,12 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import athenaeum.cli as cli_module
 from typer.testing import CliRunner
 
 from athenaeum.cli import app
 from athenaeum.config import load_config
-
 
 runner = CliRunner()
 
@@ -37,6 +35,17 @@ def test_help_lists_expanded_command_surface() -> None:
     assert result.exit_code == 0
     for command in ["ask", "evolve", "review", "science", "watch", "sessions", "personas", "thinkers", "workflows", "schemas", "config", "setup"]:
         assert command in result.output
+    assert "think-tank orchestration" in result.output
+    assert "Examples" in result.output
+    assert "doctor" in result.output
+
+
+def test_version_flag() -> None:
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert "athenaeum" in result.output
+    assert "0.1.0" in result.output
 
 
 def test_schema_show_prints_report_schema() -> None:
@@ -90,7 +99,7 @@ def test_effort_list_preserves_table_view() -> None:
 
 
 def test_interactive_effort_selector_changes_dry_run_effort(monkeypatch) -> None:
-    monkeypatch.setattr(cli_module, "select_effort_slider", lambda selected: "medium")
+    monkeypatch.setattr("athenaeum.cli.run.select_effort_slider", lambda selected: "medium")
 
     result = runner.invoke(app, ["--minimal", "--dry-run", "-i", "--effort", "high", "Should we ship?"])
 

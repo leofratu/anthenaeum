@@ -49,7 +49,7 @@ class AgentResult(BaseModel):
     runtime_meta: RuntimeMeta
 
     @classmethod
-    def from_payload(cls, payload: Any, runtime: str, model: str | None = None) -> "AgentResult":
+    def from_payload(cls, payload: Any, runtime: str, model: str | None = None) -> AgentResult:
         if isinstance(payload, dict) and "content" in payload:
             data = dict(payload)
             data.setdefault("runtime_meta", {"runtime": runtime, "model": model})

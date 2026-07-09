@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from athenaeum.config import load_config
 
 from .api import ApiRuntime
 from .cli import CliRuntime, RuntimeDefinition, definition_from_command
 from .minimal import MinimalRuntime
-
 
 BUILTIN_DEFINITIONS: tuple[RuntimeDefinition, ...] = (
     RuntimeDefinition(
@@ -57,7 +56,7 @@ class RuntimeRegistry:
                 self._aliases[alias.lower()] = definition.name
 
     @classmethod
-    def from_config(cls, path: Path | None = None) -> "RuntimeRegistry":
+    def from_config(cls, path: Path | None = None) -> RuntimeRegistry:
         registry = cls()
         data = load_config(path)
         for name, value in data.get("runtimes", {}).items():

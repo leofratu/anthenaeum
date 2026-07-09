@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-
 
 DEFAULT_CONFIG_NAMES = ("thinktank.toml", ".thinktank/config.toml")
 PRIMARY_CONFIG_KEYS = (
@@ -213,13 +212,13 @@ def _active_models(data: Mapping[str, Any]) -> list[str]:
     )
 
 
-def _string_list(value: Any) -> list[str]:
+def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
 
 
-def _unique(values: Any) -> list[str]:
+def _unique(values: Iterable[str]) -> list[str]:
     result: list[str] = []
     for value in values:
         if value not in result:

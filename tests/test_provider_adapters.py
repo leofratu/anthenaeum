@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 from athenaeum.gateway.adapters import AnthropicAdapter, GoogleAdapter, OpenAICompatibleAdapter
 from athenaeum.gateway.models import CompletionRequest, ProviderConfig, ResolvedModel

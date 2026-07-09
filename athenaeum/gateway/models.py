@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 Capability = Literal["reasoner", "fast", "long-context", "cheap-judge", "embedder"]
 WireApi = Literal["chat/completions", "responses"]
 

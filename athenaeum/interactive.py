@@ -7,7 +7,6 @@ from athenaeum.effort import get_effort
 from athenaeum.reasoning import get_reasoning_profile
 from athenaeum.workflow import validate_mode
 
-
 Action = Literal[
     "noop",
     "exit",
@@ -75,48 +74,55 @@ class InteractiveResult:
 
 HELP_TEXT = """ATHENAEUM interactive
 
+Essentials:
+  <question>              run with current settings (same as /run)
+  /plan <question>        preview compiled workflow (no spend)
+  /run <question>         execute the think-tank pipeline
+  /iq [value|select]      effort slider; bare /iq opens it
+  /doctor                 runtime + provider diagnostics
+  /settings               compact session settings
+  /help advanced          lower-level controls
+  /exit                   leave interactive mode
+
 Setup:
-/setup                 show the current setup path
-/provider [name]      show or set provider
-/model [name]         show or set primary model
-/review-model [name]  show or set review model
-/base-url [url]       show or set OpenAI-compatible base URL
-/runtime [name]       auto|minimal|api|opencode|codex|agy|claude|gemini
-/network [on|off|auto]
-/storage [preference]
-/save-config [path]   write thinktank.toml from this session
+  /setup                  recommended setup path
+  /provider [name]        show or set provider
+  /model [name]           show or set primary model
+  /review-model [name]    show or set review model
+  /base-url [url]         OpenAI-compatible base URL
+  /runtime [name]         auto|minimal|api|opencode|codex|agy|claude|gemini
+  /network [on|off|auto]
+  /storage [preference]
+  /save-config [path]     write thinktank.toml from this session
 
-Control:
-/iq [value|select]    one main slider; no value opens it
-/plan <question>      preview the workflow
-/run <question>       run with current settings
-/doctor               run environment diagnostics
-/settings             show compact settings
-/help advanced        show lower-level controls
-/exit                 leave interactive mode
+Quick path (offline):
+  /runtime minimal
+  /iq select
+  /plan Should we ship?
 
-Typing a question without a slash is the same as /run <question>.
+Tip: blank lines are ignored; type /help advanced for more.
 """.strip()
 
 
 ADVANCED_HELP_TEXT = """Advanced commands:
-/dry-run <question>       preview the compiled workflow
-/effort [level|select]    low|medium|high|vhigh|max|ultra or iq-* aliases
-/reasoning [level]        auto|off|low|medium|high|vhigh|xhigh|max
-/budget [usd]             show or set budget
-/audience [text]          show or set audience
-/mode [name]              auto|decide|evolve|review|science
-/goal [text|complete]     show, set, or complete the active goal
-/resume [run-id]          resume a previous run
-/settings network ...     advanced network alias
-/settings storage ...     advanced storage alias
+  /dry-run <question>       compile workflow only
+  /effort [level|select]    low|medium|high|vhigh|max|ultra or iq-* aliases
+  /reasoning [level]        auto|off|low|medium|high|vhigh|xhigh|max
+  /budget [usd]             show or set budget
+  /audience [text]          show or set audience
+  /mode [name]              auto|decide|evolve|review|science
+  /goal [text|complete]     show, set, or complete the active goal
+  /resume [run-id]          inspect a previous run
+  /settings network ...     network alias
+  /settings storage ...     storage alias
+  /status                   alias for /settings
 """.strip()
 
 
 def handle_interactive_line(line: str, state: InteractiveState) -> InteractiveResult:
     value = line.strip()
     if not value:
-        return InteractiveResult("noop")
+        return InteractiveResult("noop", "empty input · type a question, /help, or /exit")
     if not value.startswith("/"):
         return InteractiveResult("run", question=value)
     command, _, rest = value[1:].partition(" ")
@@ -147,11 +153,17 @@ def handle_interactive_line(line: str, state: InteractiveState) -> InteractiveRe
     if command == "resume":
         return InteractiveResult("resume", target=rest or None)
     if command == "run":
-        return InteractiveResult("run", question=rest) if rest else InteractiveResult("noop", "usage: /run <question>")
+        if not rest:
+            return InteractiveResult("noop", "usage: /run <question>")
+        return InteractiveResult("run", question=rest)
     if command == "plan":
-        return InteractiveResult("plan", question=rest) if rest else InteractiveResult("noop", "usage: /plan <question>")
+        if not rest:
+            return InteractiveResult("noop", "usage: /plan <question>")
+        return InteractiveResult("plan", question=rest)
     if command in {"dry-run", "dryrun"}:
-        return InteractiveResult("dry_run", question=rest) if rest else InteractiveResult("noop", "usage: /dry-run <question>")
+        if not rest:
+            return InteractiveResult("noop", "usage: /dry-run <question>")
+        return InteractiveResult("dry_run", question=rest)
     if command == "provider":
         return _handle_provider(rest, state)
     if command == "model":
@@ -234,15 +246,17 @@ def format_setup(state: InteractiveState) -> str:
     return "\n".join(
         [
             "Setup path:",
-            f"provider={provider}",
-            f"model={model}",
-            f"review_model={review_model}",
-            f"base_url={state.base_url}",
-            f"runtime={state.runtime}",
-            f"iq=effort:{state.effort}",
-            f"network={state.network_access}",
-            f"storage={state.storage_preference}",
+            f"  provider={provider}",
+            f"  model={model}",
+            f"  review_model={review_model}",
+            f"  base_url={state.base_url}",
+            f"  runtime={state.runtime}",
+            f"  iq=effort:{state.effort}",
+            f"  network={state.network_access}",
+            f"  storage={state.storage_preference}",
+            "",
             "Next: /iq select, /runtime auto, /save-config thinktank.toml, then /plan <question>.",
+            "Offline: /runtime minimal · then /plan <question> (no API keys).",
         ]
     )
 
@@ -256,7 +270,9 @@ def _handle_provider(rest: str, state: InteractiveState) -> InteractiveResult:
 
 def _handle_model(rest: str, state: InteractiveState) -> InteractiveResult:
     if not rest:
-        return InteractiveResult("status", f"model={state.model or 'default'} · review_model={state.review_model or 'default'}")
+        model = state.model or "default"
+        review = state.review_model or "default"
+        return InteractiveResult("status", f"model={model} · review_model={review}")
     slot, _, value = rest.partition(" ")
     if slot.lower() in {"review", "reviewer", "review-model", "review_model"}:
         if not value.strip():
@@ -270,7 +286,8 @@ def _handle_model(rest: str, state: InteractiveState) -> InteractiveResult:
             state.provider = provider
             model = provider_model
     state.model = model
-    return InteractiveResult("status", f"provider={state.provider or 'default'} · model={state.model or 'default'}")
+    provider = state.provider or "default"
+    return InteractiveResult("status", f"provider={provider} · model={state.model or 'default'}")
 
 
 def _handle_base_url(rest: str, state: InteractiveState) -> InteractiveResult:

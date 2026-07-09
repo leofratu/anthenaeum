@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from athenaeum.gateway import ModelGateway
 from athenaeum.gateway.models import CompletionRequest

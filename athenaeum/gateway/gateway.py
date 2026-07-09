@@ -22,7 +22,6 @@ from .models import (
 )
 from .transport import HttpTransport
 
-
 DEFAULT_ROUTES = {
     "reasoner": ["stub/reasoner"],
     "fast": ["stub/fast"],
@@ -103,7 +102,7 @@ class ModelGateway:
         self.transport = transport
 
     @classmethod
-    def from_config(cls, config_path=None, ledger: BudgetLedger | None = None, transport: HttpTransport | None = None) -> "ModelGateway":
+    def from_config(cls, config_path=None, ledger: BudgetLedger | None = None, transport: HttpTransport | None = None) -> ModelGateway:
         data = load_config(config_path)
         routes = dict(DEFAULT_ROUTES)
         env_defaults = _env_provider_defaults(data)

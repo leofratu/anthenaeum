@@ -2,15 +2,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 from athenaeum.artifacts import RunArtifacts
 from athenaeum.loops import DeterministicLoopEngine
 from athenaeum.loops.context import RunContext
 from athenaeum.runtime.models import AgentEvent, AgentResult, CostDelta, RuntimeMeta
-from athenaeum.schemas import DebateOutput, ReportOutput, ResearchOutput, ReviewerCourtOutput, ReviseOutput, VerifyOutput
+from athenaeum.schemas import (
+    DebateOutput,
+    ReportOutput,
+    ResearchOutput,
+    ReviewerCourtOutput,
+    ReviseOutput,
+    VerifyOutput,
+)
 from athenaeum.workflow import ExecutionPlan
+
+NODE_ARTIFACTS: dict[str, tuple[str, type]] = {
+    "research": ("research.json", ResearchOutput),
+    "debate": ("debate.json", DebateOutput),
+    "draft": ("draft.initial.json", ReportOutput),
+    "verify": ("verify.json", VerifyOutput),
+    "court": ("court.json", ReviewerCourtOutput),
+    "revise": ("revise.json", ReviseOutput),
+}
+
+
+@runtime_checkable
+class Dumpable(Protocol):
+    def model_dump(self, *, mode: str = "python") -> Any: ...
 
 
 @dataclass
@@ -20,7 +43,13 @@ class ConductorResult:
 
 
 class LocalConductor:
-    def __init__(self, plan: ExecutionPlan, artifacts: RunArtifacts, context: RunContext, on_event: Callable[[AgentEvent], None] | None = None):
+    def __init__(
+        self,
+        plan: ExecutionPlan,
+        artifacts: RunArtifacts,
+        context: RunContext,
+        on_event: Callable[[AgentEvent], None] | None = None,
+    ):
         self.plan = plan
         self.artifacts = artifacts
         self.context = context
@@ -65,12 +94,15 @@ class LocalConductor:
         raise ValueError(f"unknown node {node}")
 
     def _node_start(self, node: str, outputs: dict[str, object]) -> None:
-        self.artifacts.append_journal("node_start", {"node": node, "input_digest": self._input_digest(node, outputs), "config_digest": self._config_digest()})
+        self.artifacts.append_journal(
+            "node_start",
+            {"node": node, "input_digest": self._input_digest(node, outputs), "config_digest": self._config_digest()},
+        )
         if self.on_event:
             self.on_event(AgentEvent(kind="progress", message=f"{node} running", raw={"node": node, "state": "running"}))
 
     def _node_final(self, node: str, output: object, outputs: dict[str, object]) -> None:
-        payload = output.model_dump(mode="json") if hasattr(output, "model_dump") else output
+        payload = jsonable_payload(output)
         output_digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
         event = {
             "node": node,
@@ -88,15 +120,7 @@ class LocalConductor:
             self.on_event(AgentEvent(kind="progress", message=f"{node} complete", raw={"node": node, "state": "done"}))
 
     def _load_cached(self, node: str) -> object | None:
-        mapping = {
-            "research": ("research.json", ResearchOutput),
-            "debate": ("debate.json", DebateOutput),
-            "draft": ("draft.initial.json", ReportOutput),
-            "verify": ("verify.json", VerifyOutput),
-            "court": ("court.json", ReviewerCourtOutput),
-            "revise": ("revise.json", ReviseOutput),
-        }
-        filename, model = mapping[node]
+        filename, model = NODE_ARTIFACTS[node]
         path = self.artifacts.artifacts / filename
         if not path.exists():
             return None
@@ -129,21 +153,18 @@ class LocalConductor:
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _object_digest(self, value: object) -> str:
-        payload = value.model_dump(mode="json") if hasattr(value, "model_dump") else value
-        raw = json.dumps(payload, sort_keys=True)
+        raw = json.dumps(jsonable_payload(value), sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def _artifact_for_node(self, node: str):
-        mapping = {
-            "research": "research.json",
-            "debate": "debate.json",
-            "draft": "draft.initial.json",
-            "verify": "verify.json",
-            "court": "court.json",
-            "revise": "revise.json",
-        }
-        name = mapping.get(node)
-        return self.artifacts.artifacts / name if name else None
+    def _artifact_for_node(self, node: str) -> Path | None:
+        entry = NODE_ARTIFACTS.get(node)
+        return self.artifacts.artifacts / entry[0] if entry else None
+
+
+def jsonable_payload(value: object) -> object:
+    if isinstance(value, Dumpable):
+        return value.model_dump(mode="json")
+    return value
 
 
 def result_from_report(report: ReportOutput) -> AgentResult:

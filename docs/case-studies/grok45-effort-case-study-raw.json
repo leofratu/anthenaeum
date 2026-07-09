@@ -1,0 +1,2032 @@
+{
+  "base_url": "https://openapi.junliai.org/v1",
+  "effort_profiles": {
+    "high": {
+      "budget": 5.0,
+      "debaters": 4,
+      "rounds": 3,
+      "scale": "best_of_3",
+      "tagline": "Thorough"
+    },
+    "low": {
+      "budget": 0.5,
+      "debaters": 2,
+      "rounds": 1,
+      "scale": "none",
+      "tagline": "Faster"
+    },
+    "max": {
+      "budget": 30.0,
+      "debaters": 6,
+      "rounds": 5,
+      "scale": "tournament-8",
+      "tagline": "No stone unturned"
+    },
+    "medium": {
+      "budget": 1.5,
+      "debaters": 3,
+      "rounds": 2,
+      "scale": "best_of_2",
+      "tagline": "Balanced"
+    },
+    "ultra": {
+      "budget": 75.0,
+      "debaters": 8,
+      "rounds": 7,
+      "scale": "tournament-16",
+      "tagline": "Adversarial exhaustive"
+    },
+    "vhigh": {
+      "budget": 12.0,
+      "debaters": 5,
+      "rounds": 4,
+      "scale": "tournament-4",
+      "tagline": "Relentless"
+    }
+  },
+  "generated_at": "2026-07-09T08:16:51Z",
+  "model": "grok-4.5",
+  "plans": {
+    "high": {
+      "plan": {
+        "audience": null,
+        "budget": 12.5,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "high",
+        "estimated_cost": 6.2,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 2.17,
+            "estimated_tokens": 13500,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "4 debaters x 3 rounds",
+            "estimated_cost": 1.24,
+            "estimated_tokens": 15000,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 3,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=best_of_3",
+            "estimated_cost": 0.93,
+            "estimated_tokens": 16500,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=3 skeptics per claim",
+            "estimated_cost": 0.93,
+            "estimated_tokens": 18000,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument,audience,sentiment,thinker,domain",
+            "estimated_cost": 0.62,
+            "estimated_tokens": 19500,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "4 iterations",
+            "estimated_cost": 0.31,
+            "estimated_tokens": 21000,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 4,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "domain_expert",
+            "operator",
+            "skeptic",
+            "judge",
+            "writer"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "high",
+          "expert_panel_size": 6,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 2,
+            "runtimes": 1,
+            "strategy": "cross-provider review where available"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "deep",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 4,
+              "name": "debate",
+              "purpose": "compare competing positions"
+            },
+            {
+              "iterations": 1,
+              "name": "synthesis",
+              "purpose": "merge evidence into a coherent answer shape"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 2,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            },
+            {
+              "iterations": 2,
+              "name": "court",
+              "purpose": "adjudicate reviewer findings"
+            },
+            {
+              "iterations": 4,
+              "name": "revise",
+              "purpose": "apply critique and tighten the answer"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 6.2,
+          "summary": "complex question planned at high effort: 7 loops starting with research, debate, synthesis; 6 experts; deep review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    },
+    "low": {
+      "plan": {
+        "audience": null,
+        "budget": 1.25,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "low",
+        "estimated_cost": 0.62,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 0.217,
+            "estimated_tokens": 4725,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "2 debaters x 1 rounds",
+            "estimated_cost": 0.124,
+            "estimated_tokens": 5250,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 1,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=none",
+            "estimated_cost": 0.093,
+            "estimated_tokens": 5775,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=1 skeptics per claim",
+            "estimated_cost": 0.093,
+            "estimated_tokens": 6300,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument",
+            "estimated_cost": 0.062,
+            "estimated_tokens": 6825,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "1 iterations",
+            "estimated_cost": 0.031,
+            "estimated_tokens": 7349,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 1,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "writer"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "low",
+          "expert_panel_size": 2,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 1,
+            "runtimes": 1,
+            "strategy": "single stable runtime"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "light",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 2,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 0.62,
+          "summary": "complex question planned at low effort: 3 loops starting with research, draft, verify; 2 experts; light review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    },
+    "max": {
+      "plan": {
+        "audience": null,
+        "budget": 75.0,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "max",
+        "estimated_cost": 37.2,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 13.02,
+            "estimated_tokens": 43200,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "6 debaters x 5 rounds",
+            "estimated_cost": 7.44,
+            "estimated_tokens": 48000,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 5,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=tournament-8",
+            "estimated_cost": 5.58,
+            "estimated_tokens": 52800,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=5 skeptics per claim",
+            "estimated_cost": 5.58,
+            "estimated_tokens": 57600,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument,audience,sentiment,thinker,domain,poll,revision2",
+            "estimated_cost": 3.72,
+            "estimated_tokens": 62400,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "8 iterations",
+            "estimated_cost": 1.86,
+            "estimated_tokens": 67200,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 8,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "domain_expert",
+            "operator",
+            "skeptic",
+            "red_team",
+            "policy_reviewer",
+            "judge",
+            "writer"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "max",
+          "expert_panel_size": 9,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 3,
+            "runtimes": 2,
+            "strategy": "provider and runtime tournament with final adjudication"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "exhaustive",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 6,
+              "name": "debate",
+              "purpose": "compare competing positions"
+            },
+            {
+              "iterations": 3,
+              "name": "source_audit",
+              "purpose": "stress-test source quality and gaps"
+            },
+            {
+              "iterations": 1,
+              "name": "synthesis",
+              "purpose": "merge evidence into a coherent answer shape"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 3,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            },
+            {
+              "iterations": 6,
+              "name": "red_team",
+              "purpose": "seek failure modes and counterarguments"
+            },
+            {
+              "iterations": 3,
+              "name": "court",
+              "purpose": "adjudicate reviewer findings"
+            },
+            {
+              "iterations": 8,
+              "name": "revise",
+              "purpose": "apply critique and tighten the answer"
+            },
+            {
+              "iterations": 3,
+              "name": "final_judge",
+              "purpose": "make final acceptance call"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 37.2,
+          "summary": "complex question planned at max effort: 10 loops starting with research, debate, source_audit; 9 experts; exhaustive review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    },
+    "medium": {
+      "plan": {
+        "audience": null,
+        "budget": 3.75,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "medium",
+        "estimated_cost": 1.86,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 0.651,
+            "estimated_tokens": 8775,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "3 debaters x 2 rounds",
+            "estimated_cost": 0.372,
+            "estimated_tokens": 9750,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 2,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=best_of_2",
+            "estimated_cost": 0.279,
+            "estimated_tokens": 10725,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=2 skeptics per claim",
+            "estimated_cost": 0.279,
+            "estimated_tokens": 11700,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument,domain",
+            "estimated_cost": 0.186,
+            "estimated_tokens": 12675,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "2 iterations",
+            "estimated_cost": 0.093,
+            "estimated_tokens": 13650,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 2,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "domain_expert",
+            "writer",
+            "skeptic"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "medium",
+          "expert_panel_size": 4,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 1,
+            "runtimes": 1,
+            "strategy": "primary runtime with deterministic fallback"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "standard",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 3,
+              "name": "debate",
+              "purpose": "compare competing positions"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 2,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            },
+            {
+              "iterations": 2,
+              "name": "revise",
+              "purpose": "apply critique and tighten the answer"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 1.86,
+          "summary": "complex question planned at medium effort: 5 loops starting with research, debate, draft; 4 experts; standard review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    },
+    "ultra": {
+      "plan": {
+        "audience": null,
+        "budget": 187.5,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "ultra",
+        "estimated_cost": 93.0,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 32.55,
+            "estimated_tokens": 67500,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "8 debaters x 7 rounds",
+            "estimated_cost": 18.6,
+            "estimated_tokens": 75000,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 7,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=tournament-16",
+            "estimated_cost": 13.95,
+            "estimated_tokens": 82500,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=7 skeptics per claim",
+            "estimated_cost": 13.95,
+            "estimated_tokens": 90000,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument,audience,sentiment,thinker,domain,poll,revision2,replication,redteam",
+            "estimated_cost": 9.3,
+            "estimated_tokens": 97500,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "12 iterations",
+            "estimated_cost": 4.65,
+            "estimated_tokens": 105000,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 12,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "domain_expert",
+            "operator",
+            "skeptic",
+            "red_team",
+            "policy_reviewer",
+            "replicator",
+            "judge",
+            "writer"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "ultra",
+          "expert_panel_size": 13,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 4,
+            "runtimes": 3,
+            "strategy": "multi-provider tournament with independent replication"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "adversarial",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 8,
+              "name": "debate",
+              "purpose": "compare competing positions"
+            },
+            {
+              "iterations": 4,
+              "name": "source_audit",
+              "purpose": "stress-test source quality and gaps"
+            },
+            {
+              "iterations": 4,
+              "name": "independent_replication",
+              "purpose": "rerun key reasoning through a separate path"
+            },
+            {
+              "iterations": 1,
+              "name": "synthesis",
+              "purpose": "merge evidence into a coherent answer shape"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 4,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            },
+            {
+              "iterations": 8,
+              "name": "red_team",
+              "purpose": "seek failure modes and counterarguments"
+            },
+            {
+              "iterations": 8,
+              "name": "adversarial_tournament",
+              "purpose": "pit strongest alternatives against the draft"
+            },
+            {
+              "iterations": 4,
+              "name": "court",
+              "purpose": "adjudicate reviewer findings"
+            },
+            {
+              "iterations": 12,
+              "name": "revise",
+              "purpose": "apply critique and tighten the answer"
+            },
+            {
+              "iterations": 4,
+              "name": "final_judge",
+              "purpose": "make final acceptance call"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 93.0,
+          "summary": "complex question planned at ultra effort: 12 loops starting with research, debate, source_audit; 13 experts; adversarial review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    },
+    "vhigh": {
+      "plan": {
+        "audience": null,
+        "budget": 30.0,
+        "edges": [
+          [
+            "research",
+            "debate"
+          ],
+          [
+            "debate",
+            "draft"
+          ],
+          [
+            "draft",
+            "verify"
+          ],
+          [
+            "verify",
+            "court"
+          ],
+          [
+            "court",
+            "revise"
+          ],
+          [
+            "revise",
+            "emit"
+          ]
+        ],
+        "effort": "vhigh",
+        "estimated_cost": 14.88,
+        "mode": "auto",
+        "nodes": [
+          {
+            "budget_share": 0.35,
+            "capability": "reasoner",
+            "convergence": "questions exhausted",
+            "detail": "perspective sweep and source digestion",
+            "estimated_cost": 5.208,
+            "estimated_tokens": 24300,
+            "input_schemas": [],
+            "inputs": [],
+            "kind": "loop:research",
+            "max_iterations": 6,
+            "name": "research",
+            "output_schema": "ResearchOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.2,
+            "capability": "reasoner",
+            "convergence": "stance plateau",
+            "detail": "5 debaters x 4 rounds",
+            "estimated_cost": 2.976,
+            "estimated_tokens": 27000,
+            "input_schemas": [
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:debate",
+            "max_iterations": 4,
+            "name": "debate",
+            "output_schema": "DebateOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "long-context",
+            "convergence": null,
+            "detail": "scale=tournament-4",
+            "estimated_cost": 2.232,
+            "estimated_tokens": 29700,
+            "input_schemas": [
+              "ResearchOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "writer",
+            "max_iterations": null,
+            "name": "draft",
+            "output_schema": "ReportOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.15,
+            "capability": "fast",
+            "convergence": "all triaged",
+            "detail": "k=4 skeptics per claim",
+            "estimated_cost": 2.232,
+            "estimated_tokens": 32400,
+            "input_schemas": [
+              "ReportOutput",
+              "ResearchOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "ResearchOutput",
+                "source": "research"
+              }
+            ],
+            "kind": "loop:verify",
+            "max_iterations": 1,
+            "name": "verify",
+            "output_schema": "VerifyOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.1,
+            "capability": "cheap-judge",
+            "convergence": "opinion fused",
+            "detail": "argument,audience,sentiment,thinker,domain,poll",
+            "estimated_cost": 1.488,
+            "estimated_tokens": 35100,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "DebateOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "DebateOutput",
+                "source": "debate"
+              }
+            ],
+            "kind": "reviewer_court",
+            "max_iterations": 1,
+            "name": "court",
+            "output_schema": "ReviewerCourtOutput",
+            "runtime": "api"
+          },
+          {
+            "budget_share": 0.05,
+            "capability": "reasoner",
+            "convergence": "score plateau",
+            "detail": "6 iterations",
+            "estimated_cost": 0.744,
+            "estimated_tokens": 37800,
+            "input_schemas": [
+              "ReportOutput",
+              "VerifyOutput",
+              "ReviewerCourtOutput"
+            ],
+            "inputs": [
+              {
+                "required": true,
+                "schema": "ReportOutput",
+                "source": "draft"
+              },
+              {
+                "required": true,
+                "schema": "VerifyOutput",
+                "source": "verify"
+              },
+              {
+                "required": true,
+                "schema": "ReviewerCourtOutput",
+                "source": "court"
+              }
+            ],
+            "kind": "loop:reflexion",
+            "max_iterations": 6,
+            "name": "revise",
+            "output_schema": "ReviseOutput",
+            "runtime": "api"
+          }
+        ],
+        "planner": {
+          "agent_roles": [
+            "researcher",
+            "domain_expert",
+            "operator",
+            "skeptic",
+            "red_team",
+            "judge",
+            "writer"
+          ],
+          "allow_self_judge": true,
+          "complexity_rating": {
+            "label": "complex",
+            "rationale": "62 words with complexity terms: security",
+            "score": 6
+          },
+          "effort": "vhigh",
+          "expert_panel_size": 7,
+          "planner_model": {
+            "name": "grok-4.5",
+            "provider": "Junli",
+            "runtime": "api"
+          },
+          "provider_runtime_diversity": {
+            "providers": 2,
+            "runtimes": 2,
+            "strategy": "independent reviewer runtime plus primary runtime"
+          },
+          "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+          "review_depth": "exhaustive",
+          "selected_loops": [
+            {
+              "iterations": 1,
+              "name": "research",
+              "purpose": "collect background and candidate evidence"
+            },
+            {
+              "iterations": 5,
+              "name": "debate",
+              "purpose": "compare competing positions"
+            },
+            {
+              "iterations": 3,
+              "name": "source_audit",
+              "purpose": "stress-test source quality and gaps"
+            },
+            {
+              "iterations": 1,
+              "name": "synthesis",
+              "purpose": "merge evidence into a coherent answer shape"
+            },
+            {
+              "iterations": 1,
+              "name": "draft",
+              "purpose": "produce the report candidate"
+            },
+            {
+              "iterations": 3,
+              "name": "verify",
+              "purpose": "check load-bearing claims"
+            },
+            {
+              "iterations": 3,
+              "name": "court",
+              "purpose": "adjudicate reviewer findings"
+            },
+            {
+              "iterations": 6,
+              "name": "revise",
+              "purpose": "apply critique and tighten the answer"
+            }
+          ],
+          "self_judge_reason": "review_model matches model in primary config",
+          "suggested_budget": 14.88,
+          "summary": "complex question planned at vhigh effort: 8 loops starting with research, debate, source_audit; 7 experts; exhaustive review."
+        },
+        "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+        "reasoning_effort": "high",
+        "runtime": "api",
+        "seed": null,
+        "workflow": "auto"
+      },
+      "sanity": [
+        {
+          "message": "capability 'reasoner' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'long-context' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'fast' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        },
+        {
+          "message": "capability 'cheap-judge' route 'Junli/grok-4.5' has no configured prices; using fallback estimate",
+          "rule": "S5",
+          "severity": "warning"
+        }
+      ]
+    }
+  },
+  "provider": "Junli",
+  "question": "Should democratic governments ban the open release of frontier open-weight AI models that demonstrably lower the barrier to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access? Steelman both sides, identify load-bearing empirical claims, name the strongest objection to your conclusion, and give a decision framework a national security council could use.",
+  "runs": [
+    {
+      "citations": 2,
+      "claims": 5,
+      "confidence": null,
+      "duration_s": 87.79,
+      "effort": "low",
+      "error": null,
+      "exit_code": 0,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-low.md",
+      "plan_budget": 1.25,
+      "plan_debaters": "2 debaters x 1 rounds",
+      "plan_est_cost": 0.62,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "# ATHENAEUM Research Report  ## Question Restatement Should democratic governments ban open release of frontier open-weight AI models that demonstrably lower barriers to bioweapon design assistance, or is continued open release net-positive because defenders, academic labs, and red teams need equal access?  ## Steelman: Ban / Restrict Open Release Proponents argue that once weights are public, capability cannot be recalled. If a model measurably reduces the expertise, time, or resources needed for pathogen design, acquisition, or weaponization steps, open release expands the set of actors who ",
+      "words": 886
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 37.68,
+      "effort": "medium",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort medium \u00b7 reasoning high \u00b7 budget $3.75 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-medium.md",
+      "plan_budget": 3.75,
+      "plan_debaters": "3 debaters x 2 rounds",
+      "plan_est_cost": 1.86,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.38,
+      "effort": "high",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort high \u00b7 reasoning high \u00b7 budget $12.50 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-high.md",
+      "plan_budget": 12.5,
+      "plan_debaters": "4 debaters x 3 rounds",
+      "plan_est_cost": 6.2,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.41,
+      "effort": "vhigh",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort vhigh \u00b7 reasoning high \u00b7 budget $30.00 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-vhigh.md",
+      "plan_budget": 30.0,
+      "plan_debaters": "5 debaters x 4 rounds",
+      "plan_est_cost": 14.88,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.37,
+      "effort": "max",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort max \u00b7 reasoning high \u00b7 budget $75.00 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-max.md",
+      "plan_budget": 75.0,
+      "plan_debaters": "6 debaters x 5 rounds",
+      "plan_est_cost": 37.2,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.38,
+      "effort": "ultra",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort ultra \u00b7 reasoning high \u00b7 budget $187.50 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/effort-ultra.md",
+      "plan_budget": 187.5,
+      "plan_debaters": "8 debaters x 7 rounds",
+      "plan_est_cost": 93.0,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.34,
+      "effort": "medium",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort medium \u00b7 reasoning off \u00b7 budget $3.75 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/reasoning-off.md",
+      "plan_budget": 3.75,
+      "plan_debaters": "3 debaters x 2 rounds",
+      "plan_est_cost": 1.86,
+      "plan_nodes": 6,
+      "reasoning": "off",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.37,
+      "effort": "medium",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort medium \u00b7 reasoning high \u00b7 budget $3.75 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/reasoning-high.md",
+      "plan_budget": 3.75,
+      "plan_debaters": "3 debaters x 2 rounds",
+      "plan_est_cost": 1.86,
+      "plan_nodes": 6,
+      "reasoning": "high",
+      "report_preview": "",
+      "words": 0
+    },
+    {
+      "citations": 0,
+      "claims": 0,
+      "confidence": null,
+      "duration_s": 0.37,
+      "effort": "medium",
+      "error": "\u25c8 ATHENAEUM                                                v0.1.0 \u00b7 run d81ead07\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nQ  Should democratic governments ban the open release of frontier open-weight AI\nmodels that demonstrably lower the barrier to bioweapon design assistance, or is\ncontinued open release net-positive because defenders, academic labs, and red \nteams need equal access? Steelman both sides, identify load-bearing empirical \nclaims, name the strongest objection to your conclusion, and give a decision \nframework a national security council could use.\n\u2699  auto workflow \u00b7 effort medium \u00b7 reasoning xhigh \u00b7 budget $3.75 \u00b7 runtime api\n\u2713  sanity S1-S9 passed \u00b7 4 warnings\n\u2713 api gateway dispatch\n",
+      "exit_code": 1,
+      "kind": "live",
+      "out_path": "runs/case-study-grok/reasoning-xhigh.md",
+      "plan_budget": 3.75,
+      "plan_debaters": "3 debaters x 2 rounds",
+      "plan_est_cost": 1.86,
+      "plan_nodes": 6,
+      "reasoning": "xhigh",
+      "report_preview": "",
+      "words": 0
+    }
+  ]
+}

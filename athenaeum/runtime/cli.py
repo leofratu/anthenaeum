@@ -1,26 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 import json
 import shlex
 import shutil
 import subprocess
 import time
+from collections.abc import AsyncIterator
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from .models import (
     AgentEvent,
     AgentResult,
-    CostDelta,
     AgentTask,
+    CostDelta,
     RuntimeExecutionError,
     RuntimeHealth,
+    RuntimeMeta,
     RuntimeUnavailable,
     SchemaValidationError,
-    RuntimeMeta,
     Workspace,
     validate_json_schema_subset,
 )
@@ -210,7 +211,7 @@ async def _read_stdout_line(process: asyncio.subprocess.Process, started: float,
         raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline")
     try:
         return await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         await _kill_process(process)
         raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline") from exc
 
@@ -222,7 +223,7 @@ async def _wait_for_process(process: asyncio.subprocess.Process, started: float,
         raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline")
     try:
         await asyncio.wait_for(process.wait(), timeout=remaining)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         await _kill_process(process)
         raise RuntimeExecutionError(f"{runtime_name} exceeded {deadline_seconds}s deadline") from exc
 

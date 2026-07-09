@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from athenaeum.interactive import InteractiveState, handle_interactive_line
-from athenaeum.reasoning import apply_anthropic_reasoning, apply_google_reasoning, apply_openai_reasoning, get_reasoning_profile
+from athenaeum.reasoning import (
+    apply_anthropic_reasoning,
+    apply_google_reasoning,
+    apply_openai_reasoning,
+    get_reasoning_profile,
+)
 
 
 def test_reasoning_profiles_map_provider_controls() -> None:

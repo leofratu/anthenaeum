@@ -149,14 +149,14 @@ class ArgumentMap(BaseModel):
 
 class PanelOpinion(BaseModel):
     panel: Literal["argument", "audience", "sentiment", "thinker", "domain"]
-    verdicts: list["Verdict"]
+    verdicts: list[Verdict]
 
 
 class ReviewerCourtOutput(BaseModel):
     kind: Literal["court"] = "court"
     argmap: ArgumentMap
     panels: list[PanelOpinion]
-    opinion: "CourtOpinion"
+    opinion: CourtOpinion
 
 
 class RevisionIteration(BaseModel):
@@ -169,7 +169,7 @@ class RevisionIteration(BaseModel):
 class ReviseOutput(BaseModel):
     kind: Literal["revise"] = "revise"
     iterations: list[RevisionIteration]
-    final_report: "ReportOutput"
+    final_report: ReportOutput
     plateau_reason: str | None = None
 
 

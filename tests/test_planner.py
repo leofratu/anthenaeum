@@ -4,7 +4,6 @@ from athenaeum.effort import get_effort
 from athenaeum.planner import PlannerDecision, PlannerModelRef, plan_run
 from athenaeum.workflow import compile_plan
 
-
 QUESTION = (
     "Should we migrate a regulated healthcare platform to a new multi-provider "
     "AI architecture, and how should we compare privacy, security, compliance, "

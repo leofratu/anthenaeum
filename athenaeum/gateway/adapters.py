@@ -7,7 +7,14 @@ import httpx
 
 from athenaeum.reasoning import apply_anthropic_reasoning, apply_google_reasoning, apply_openai_reasoning
 
-from .models import CompletionRequest, CompletionResult, ProviderConfig, ProviderUnavailable, ResolvedModel, TransientProviderError
+from .models import (
+    CompletionRequest,
+    CompletionResult,
+    ProviderConfig,
+    ProviderUnavailable,
+    ResolvedModel,
+    TransientProviderError,
+)
 from .transport import HttpTransport
 
 

@@ -2,13 +2,25 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .effort import EffortProfile
 
-
 BUILTIN_WORKFLOW_NAMES = ("auto", "review", "evolve", "science")
 VALID_MODES = ("auto", "deliberate", "decide", "brief")
+
+# Incomplete gateway stubs and misconfigured providers must not break dry-run cost projection.
+# RuntimeError covers ProviderUnavailable and similar gateway failures; keep BaseException subclasses uncaught.
+_GATEWAY_COST_ERRORS = (AttributeError, TypeError, KeyError, ValueError, RuntimeError)
+
+
+@runtime_checkable
+class CostEstimateGateway(Protocol):
+    def resolve(self, capability: str | None = None, model: str | None = None) -> Any: ...
+
+    def route_targets(self, capability: str) -> list[str]: ...
+
+    def route_availability(self, capability: str) -> list[Any]: ...
 
 
 @dataclass(frozen=True)
@@ -94,7 +106,7 @@ def compile_plan(
         "max": 3.2,
         "ultra": 5.0,
     }[effort.name]
-    cost_basis = _estimated_cost_basis(effort, planner)
+    cost_basis = estimated_cost_basis(effort, planner)
     node_specs = (
         ("research", "loop:research", "reasoner", "ResearchOutput", (), 0.35, "perspective sweep and source digestion", 6, "questions exhausted"),
         ("debate", "loop:debate", "reasoner", "DebateOutput", (PlanInput("research", "ResearchOutput"),), 0.20, f"{effort.debaters} debaters x {effort.rounds} rounds", effort.rounds, "stance plateau"),
@@ -135,48 +147,58 @@ def validate_mode(mode: str) -> str:
     raise ValueError(f"unknown mode {mode!r}; expected one of: {valid}")
 
 
-def apply_gateway_estimates(plan: ExecutionPlan, gateway: Any) -> ExecutionPlan:
+def apply_gateway_estimates(plan: ExecutionPlan, gateway: CostEstimateGateway) -> ExecutionPlan:
     nodes = tuple(replace(node, estimated_cost=estimate_node_cost(node, gateway)) for node in plan.nodes)
     return replace(plan, nodes=nodes)
 
 
-def estimate_plan_cost(plan: ExecutionPlan, gateway: Any) -> float:
+def estimate_plan_cost(plan: ExecutionPlan, gateway: CostEstimateGateway) -> float:
     return round(sum(estimate_node_cost(node, gateway) for node in plan.nodes), 4)
 
 
-def estimate_node_cost(node: PlanNode, gateway: Any) -> float:
-    target = _preferred_route_target(node.capability, gateway)
+def estimate_node_cost(node: PlanNode, gateway: CostEstimateGateway) -> float:
+    target = preferred_route_target(node.capability, gateway)
     if target is None:
         return node.estimated_cost
     try:
         resolved = gateway.resolve(node.capability, target)
-    except Exception:
+    except _GATEWAY_COST_ERRORS:
+        # Best-effort cost projection: fall back to planner estimates.
+        return node.estimated_cost
+    try:
+        price_in = float(resolved.price_input_per_1k)
+        price_out = float(resolved.price_output_per_1k)
+    except (AttributeError, TypeError, ValueError):
         return node.estimated_cost
     tokens_in = max(int(node.estimated_tokens * 0.75), 0)
     tokens_out = max(node.estimated_tokens - tokens_in, 0)
-    projected = round(
-        tokens_in / 1000 * resolved.price_input_per_1k
-        + tokens_out / 1000 * resolved.price_output_per_1k,
-        4,
-    )
+    projected = round(tokens_in / 1000 * price_in + tokens_out / 1000 * price_out, 4)
     return projected if projected > 0 else node.estimated_cost
 
 
-def _preferred_route_target(capability: str, gateway: Any) -> str | None:
+def preferred_route_target(capability: str, gateway: CostEstimateGateway) -> str | None:
     try:
         targets = gateway.route_targets(capability)
         healths = gateway.route_availability(capability)
-    except Exception:
+    except _GATEWAY_COST_ERRORS:
+        # Missing/partial gateway stubs should not break dry-run.
         return None
     for target, health in zip(targets, healths, strict=False):
-        if health.available:
+        if getattr(health, "available", False):
             return target
     return targets[0] if targets else None
 
 
-def _estimated_cost_basis(effort: EffortProfile, planner: dict[str, Any] | None) -> float:
-    if isinstance(planner, dict):
-        suggested = planner.get("suggested_budget")
-        if not isinstance(suggested, bool) and isinstance(suggested, (int, float)) and suggested > 0:
-            return float(suggested)
+def estimated_cost_basis(effort: EffortProfile, planner: dict[str, Any] | None) -> float:
+    if not isinstance(planner, dict):
+        return effort.default_budget
+    suggested = planner.get("suggested_budget")
+    # bool is a subclass of int; reject True/False so they never become budgets.
+    if isinstance(suggested, (int, float)) and not isinstance(suggested, bool) and suggested > 0:
+        return float(suggested)
     return effort.default_budget
+
+
+# Backward-compatible private aliases for in-repo callers/tests.
+_preferred_route_target = preferred_route_target
+_estimated_cost_basis = estimated_cost_basis

@@ -7,7 +7,6 @@ from typer.testing import CliRunner
 
 from athenaeum.cli import app
 
-
 runner = CliRunner()
 
 

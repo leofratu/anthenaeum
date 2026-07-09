@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is",
     "it", "of", "on", "or", "should", "that", "the", "this", "to", "we", "what", "when", "with",

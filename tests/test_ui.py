@@ -5,7 +5,14 @@ from io import StringIO
 from rich.console import Console
 
 from athenaeum.effort import get_effort
-from athenaeum.ui import _build_effort_slider, _effort_animation_frame
+from athenaeum.runtime.models import RuntimeHealth
+from athenaeum.ui import (
+    _build_effort_slider,
+    _effort_animation_frame,
+    render_doctor,
+    render_effort_table,
+    render_sessions_table,
+)
 
 
 def _render(renderable: object) -> str:
@@ -41,3 +48,28 @@ def test_effort_slider_has_ascii_fallback(monkeypatch) -> None:
     assert " | " in text
     assert "←" not in text
     assert "·" not in text
+
+
+def test_effort_table_lists_all_levels(capsys) -> None:
+    render_effort_table()
+    text = capsys.readouterr().out
+    assert "Effort Levels" in text
+    assert "ultra" in text
+    assert "Adversarial exhaustive" in text
+
+
+def test_sessions_table_empty(capsys) -> None:
+    render_sessions_table([])
+    assert "no sessions" in capsys.readouterr().out
+
+
+def test_doctor_shows_ready_count(capsys) -> None:
+    healths = [
+        RuntimeHealth(name="minimal", binary="in-process", available=True, detail="ok"),
+        RuntimeHealth(name="missing", binary="gone", available=False, detail="not found", fix="install gone"),
+    ]
+    render_doctor(healths)
+    text = capsys.readouterr().out
+    assert "Runtime Doctor" in text
+    assert "1/2 runtimes ready" in text
+    assert "fix: install gone" in text

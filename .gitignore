@@ -18,6 +18,9 @@ dist/
 .thinktank/
 runs/
 report.md
+thinktank.toml
+.env
+.env.*
 
 # Local skill install links; canonical skill source lives in skills/
 .agents/

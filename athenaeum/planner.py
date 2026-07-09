@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from .effort import EffortProfile, get_effort
-
 
 ComplexityLabel = Literal["simple", "moderate", "complex", "frontier"]
 ReviewDepth = Literal["light", "standard", "deep", "exhaustive", "adversarial"]
@@ -289,7 +289,7 @@ def _model_ref(model_setting: str | PlannerModelRef | Mapping[str, Any]) -> Plan
     )
 
 
-def _optional_str(value: Any) -> str | None:
+def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)

@@ -12,7 +12,6 @@ from athenaeum.gateway.models import ProviderConfig
 from athenaeum.sanity import SanityChecker
 from athenaeum.workflow import ExecutionPlan, PlanInput, PlanNode, apply_gateway_estimates, compile_plan
 
-
 MISSING_KEY_ENV = "THINKTANK_TEST_MISSING_PROVIDER_KEY"
 
 
